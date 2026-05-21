@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Build APK
+        run: ./gradlew test :app:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: beacon-android
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+  windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          .\gradlew.bat :core:test :desktop:test :desktop:installDist
+          .\dev\package-windows.ps1 -Version "${env:GITHUB_REF_NAME}" -SkipBuild
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: beacon-windows
+          path: build/release/Beacon-Windows-*.exe
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [android, windows]
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mv release/beacon-android/app-debug.apk "release/Beacon-Android-${GITHUB_REF_NAME}.apk"
+          gh release create "${GITHUB_REF_NAME}" \
+            "release/Beacon-Android-${GITHUB_REF_NAME}.apk" \
+            release/beacon-windows/Beacon-Windows-*.exe \
+            --title "Beacon ${GITHUB_REF_NAME}" \
+            --generate-notes
