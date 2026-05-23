@@ -2,6 +2,20 @@
 
 Клиент для VLESS Reality — минималистичный, без лишних настроек. Работает на Windows и Android.
 
+<p align="center">
+  <img src=".assets/screenshot-off.png" width="480" alt="Beacon — отключено"/>
+  &nbsp;&nbsp;
+  <img src=".assets/screenshot-on.png" width="480" alt="Beacon — подключено"/>
+</p>
+
+<p align="center">
+  <img src=".assets/screenshot-keys.png" width="300" alt="Управление ключами"/>
+  &nbsp;
+  <img src=".assets/screenshot-settings.png" width="300" alt="Настройки"/>
+  &nbsp;
+  <img src=".assets/screenshot-subscriptions.png" width="300" alt="Подписки"/>
+</p>
+
 Суть проста: у тебя есть свой сервер и ключ от него. Beacon берёт этот ключ, поднимает туннель и не лезет куда не просят. Никаких аккаунтов, облаков, телеметрии и подписок.
 
 ---
