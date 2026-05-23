@@ -1,124 +1,100 @@
 # Beacon
 
-Beacon - небольшой клиент для своих VLESS Reality ключей.
+Клиент для VLESS Reality — минималистичный, без лишних настроек. Работает на Windows и Android.
 
-Проект не пытается заменить Hiddify. Идея проще: есть свой сервер, есть ключ, нужно быстро подключиться на Android или Windows без лишнего меню.
+Суть проста: у тебя есть свой сервер и ключ от него. Beacon берёт этот ключ, поднимает туннель и не лезет куда не просят. Никаких аккаунтов, облаков, телеметрии и подписок.
 
-## Что умеет
+---
 
-- импортирует `vless://` Reality ключ
-- хранит несколько профилей
-- подключает Android через системный `VpnService`
-- подключает Windows через локальный `sing-box` и system proxy
-- в Windows есть режимы `Proxy` и `TUN`
-- умеет включать WARP для Google / Gemini
-- даёт выбор DNS: Cloudflare или Google
-- умеет включать IPv6
-- хранит ключи локально в зашифрованном виде
-- собирает Windows installer `.exe`
+## Что внутри
 
-## Скачать
+**Windows** — нативное приложение с анимированным интерфейсом. Два режима:
 
-Актуальные сборки лежат в [Releases](https://github.com/vincere-mori/beacon/releases).
+- `Proxy` — туннель только для браузеров и приложений, которые умеют работать через системный прокси. Не нужны права администратора.
+- `TUN` — весь трафик системы идёт через сервер, включая игры и мессенджеры. Нужен запуск от администратора.
 
-Для Windows нужен файл:
+Кнопка `WARP` рядом с режимами — отдельный маршрут для Google и Gemini через Cloudflare WireGuard, если они плохо работают через основной сервер.
 
-```text
-Beacon-Windows-v0.1.5.exe
-```
+**Android** — использует системный `VpnService`. Работает в фоне, ключи хранятся в Android Keystore.
 
-Для Android:
+---
 
-```text
-Beacon-Android-v0.1.5.apk
-```
+## Как начать
 
-## Windows
+### Нужен свой сервер
 
-Windows-версия ставится как обычное приложение.
+Beacon — клиент, а не сервис. Сервер нужно поднять самому: обычный VPS + Xray или sing-box с VLESS Reality. Хороший старт — [официальная документация Xray](https://xtls.github.io) или любой гайд по «VLESS Reality selfhosted».
 
-Как работает:
+### Скачать
 
-- внутри installer уже лежит `sing-box`
-- Beacon запускает локальный mixed proxy
-- Windows system proxy переключается на `127.0.0.1:2080`
-- при отключении proxy возвращается обратно
+Актуальные сборки — в [Releases](https://github.com/vincere-mori/beacon/releases).
 
-Режимы:
+| Платформа | Файл |
+|-----------|------|
+| Windows | `Beacon-Windows-v0.2.0.exe` |
+| Android | `Beacon-Android-v0.2.0.apk` |
 
-- `Proxy` - частичный режим через системный proxy Windows. Работают браузеры и приложения, которые уважают proxy.
-- `TUN` - весь трафик через sing-box. Нужен запуск Beacon от имени администратора.
-- `WARP` - отдельная кнопка рядом с режимами. Нужна для Google / Gemini.
+### Подключение
 
-## Android
+1. Скопируй ключ вида `vless://...` из конфига своего сервера.
+2. Открой Beacon → «Управление ключами» → вставь ключ.
+3. Выбери режим (Proxy или TUN) и нажми «Подключить».
 
-Android-версия использует:
+На Windows при первом запуске в TUN-режиме приложение само попросит права администратора.
 
-- `VpnService`
-- `libbox`
-- Android Keystore для локального хранения ключей
-
-APK сейчас debug-signed. Для широкой раздачи нужен нормальный release signing.
+---
 
 ## Безопасность
 
-- реальные ключи не кладутся в репозиторий
-- Android хранит профили через AES-GCM ключ из Android Keystore
-- Windows хранит профили через DPAPI текущего пользователя
-- произвольный sing-box JSON не импортируется
-- релизный `sing-box` скачивается фиксированной версии и проверяется по SHA-256
-- Windows installer не подписан сертификатом, поэтому SmartScreen может ругаться
+Ключи нигде не передаются — хранятся только локально:
+- Windows: через DPAPI текущего пользователя.
+- Android: через AES-GCM ключ из Android Keystore.
+
+`sing-box.exe` в installer — фиксированная версия, проверяется по SHA-256 при сборке. Произвольный JSON в Beacon не импортируется, только `vless://` ссылки.
+
+Windows installer не имеет подписи сертификатом, поэтому SmartScreen при установке может предупредить — это ожидаемо.
+
+---
 
 ## Сборка
 
-Полная локальная проверка:
+Для сборки нужны JDK 21+ и Android SDK.
 
-```powershell
-.\gradlew.bat test assembleDebug :desktop:installDist
-.\dev\package-windows.ps1 -Version 0.1.5 -SkipBuild
-```
-
-Быстрый запуск desktop перед сборкой installer:
+Запуск desktop без сборки installer:
 
 ```bat
 dev\run-desktop-dev.bat
 ```
 
-Скрипт сам скачает проверенный `sing-box.exe` в корень проекта.
+Полная сборка Windows installer:
+
+```bat
+dev\build-windows.bat 0.2.0
+```
 
 Android APK:
 
-```text
-app/build/outputs/apk/debug/app-debug.apk
-```
-
-Windows installer:
-
-```text
-build/release/Beacon-Windows-v0.1.5.exe
-```
-
-## Релиз
-
-Релиз создаётся тегом:
-
 ```powershell
-git tag v0.1.5
-git push origin v0.1.5
+.\gradlew.bat assembleDebug
+# app/build/outputs/apk/debug/app-debug.apk
 ```
 
-GitHub Actions должен собрать:
-
-- `Beacon-Android-v0.1.5.apk`
-- `Beacon-Windows-v0.1.5.exe`
-
-Сейчас Actions на аккаунте могут не стартовать из-за billing. В таком случае релиз можно собрать локально и загрузить через `gh release create`.
+---
 
 ## Структура
 
-```text
-core      парсинг ключей и генерация sing-box config
-app       Android UI + VpnService
-desktop   Windows UI + sing-box process + system proxy
-dev       сборка installer и генерация иконок
 ```
+core       парсинг VLESS-ключей, генерация sing-box config
+app        Android: UI + VpnService
+desktop    Windows: UI + sing-box process + system proxy
+dev        сборка installer, генерация иконок
+```
+
+---
+
+## Стек
+
+- Kotlin Multiplatform (JVM + Android)
+- Jetpack Compose — Android UI
+- Swing + FlatLaf — Windows UI
+- [sing-box](https://github.com/SagerNet/sing-box) — ядро туннеля
