@@ -96,7 +96,12 @@ class SingBoxConfigBuilder(
         "google.com", "googleapis.com", "googleusercontent.com",
         "gstatic.com", "ggpht.com", "gvt1.com", "gvt2.com", "gvt3.com",
         "recaptcha.net", "youtube.com", "youtubei.googleapis.com",
-        "googlevideo.com", "ytimg.com", "ai.google.dev"
+        "googlevideo.com", "ytimg.com", "ai.google.dev",
+        // Discord — voice/QUIC over UDP often fails through a VLESS hop;
+        // Cloudflare WireGuard handles UDP cleanly, so route Discord there
+        // when WARP is enabled.
+        "discord.com", "discord.gg", "discord.media",
+        "discordapp.com", "discordapp.net"
     )
 
     private fun tun(settings: SingBoxConfigSettings): JsonObject {
@@ -113,6 +118,10 @@ class SingBoxConfigBuilder(
             put("auto_route", true)
             put("strict_route", true)
             put("stack", "mixed")
+            // Required for Discord voice / WebRTC / online games — without it
+            // sing-box looks like a symmetric NAT and STUN cannot pair peers.
+            put("endpoint_independent_nat", true)
+            put("udp_timeout", "5m")
         }
     }
 

@@ -31,6 +31,8 @@ class SingBoxConfigBuilderTest {
         assertEquals("tun", inbound["type"]!!.jsonPrimitive.content)
         assertEquals("mixed", inbound["stack"]!!.jsonPrimitive.content)
         assertTrue(inbound["address"]!!.jsonArray.size == 2)
+        assertEquals(true, inbound["endpoint_independent_nat"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals("5m", inbound["udp_timeout"]!!.jsonPrimitive.content)
     }
 
     @Test

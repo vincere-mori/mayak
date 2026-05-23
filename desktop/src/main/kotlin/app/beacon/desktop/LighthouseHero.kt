@@ -159,8 +159,11 @@ class LighthouseHero : JPanel() {
         val sky3 = Color(36, 48, 96)
         g2.paint = GradientPaint(0f, 0f, sky1, 0f, h * 0.35f, sky2)
         g2.fillRect(0, 0, w, (h * 0.35).toInt())
-        g2.paint = GradientPaint(0f, h * 0.35f, sky2, 0f, horizonY.toFloat(), sky3)
-        g2.fillRect(0, (h * 0.35).toInt(), w, horizonY - (h * 0.35).toInt())
+        // Continue the sky gradient all the way to the bottom of the panel so
+        // the sea layer (alpha-fade from the horizon) always has a matching
+        // background underneath. No seam is geometrically possible.
+        g2.paint = GradientPaint(0f, h * 0.35f, sky2, 0f, h.toFloat(), sky3)
+        g2.fillRect(0, (h * 0.35).toInt(), w, h - (h * 0.35).toInt())
     }
 
     /** Crescent moon — subtle, top-right of the sky. */
@@ -402,35 +405,15 @@ class LighthouseHero : JPanel() {
     }
 
     private fun drawSea(g2: Graphics2D, w: Int, h: Int, horizonY: Int, lhX: Int) {
+        // Single alpha-fade gradient — transparent above the horizon, fully
+        // solid deep blue at the bottom. Sky already fills the full panel
+        // height underneath, so the transition is mathematically seamless.
+        val fadeTop = horizonY - 40
         g2.paint = GradientPaint(
-            0f, horizonY.toFloat(), Color(18, 28, 70),
-            0f, h.toFloat(), Color(4, 8, 24)
+            0f, fadeTop.toFloat(), Color(18, 28, 70, 0),
+            0f, h.toFloat(),       Color(4, 8, 24, 255)
         )
-        g2.fillRect(0, horizonY, w, h - horizonY)
-
-        // Smooth sky→sea blend: the sky colour fades into the sea across a tall
-        // band straddling the horizon, so the waterline is a soft gradient
-        // rather than a hard straight seam.
-        val blendTop = horizonY - 30
-        val blendBot = horizonY + 40
-        g2.paint = GradientPaint(
-            0f, blendTop.toFloat(), Color(36, 48, 96),
-            0f, blendBot.toFloat(), Color(18, 28, 70, 0)
-        )
-        g2.fillRect(0, blendTop, w, blendBot - blendTop)
-
-        // Soft horizon glow — fades in above the waterline and back out below it,
-        // so sky and sea meet without a hard seam.
-        g2.paint = GradientPaint(
-            0f, (horizonY - 26).toFloat(), Color(120, 150, 210, 0),
-            0f, horizonY.toFloat(),        Color(120, 150, 210, 38)
-        )
-        g2.fillRect(0, horizonY - 26, w, 26)
-        g2.paint = GradientPaint(
-            0f, horizonY.toFloat(),        Color(120, 150, 210, 38),
-            0f, (horizonY + 46).toFloat(), Color(120, 150, 210, 0)
-        )
-        g2.fillRect(0, horizonY, w, 46)
+        g2.fillRect(0, fadeTop, w, h - fadeTop)
 
         for (band in 0..5) {
             val y = horizonY + band * (h - horizonY) / 6

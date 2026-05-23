@@ -1,5 +1,7 @@
 package app.beacon.desktop
 
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
@@ -8,7 +10,10 @@ import kotlin.io.path.writeText
 class SingBoxProcess(
     private val binaryLocator: SingBoxBinaryLocator = SingBoxBinaryLocator(),
     private val configFile: Path = DesktopPaths.configFile,
-    private val logFile: Path = DesktopPaths.logFile
+    private val logFile: Path = DesktopPaths.logFile,
+    private val readyProbeHost: String = "127.0.0.1",
+    private val readyProbePort: Int = 9095,
+    private val readyTimeoutMs: Long = 4000L
 ) {
     @Volatile private var process: Process? = null
 
@@ -34,14 +39,33 @@ class SingBoxProcess(
             .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()))
             .start()
 
-        Thread.sleep(600)
-        return if (running) {
+        return if (waitUntilReady()) {
             Result.success(Unit)
         } else {
-            process = null
-            deleteConfig()
+            stop()
             Result.failure(IllegalStateException("sing-box не запустился, смотри лог: $logFile"))
         }
+    }
+
+    /**
+     * Poll the clash-api port until sing-box accepts a TCP connect, or until the
+     * process dies / the timeout elapses. Replaces a fixed Thread.sleep(600) so
+     * slow disks / AV scans don't get reported as a failed start.
+     */
+    private fun waitUntilReady(): Boolean {
+        val deadline = System.currentTimeMillis() + readyTimeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (process?.isAlive != true) return false
+            try {
+                Socket().use { s ->
+                    s.connect(InetSocketAddress(readyProbeHost, readyProbePort), 250)
+                    return true
+                }
+            } catch (_: Exception) {
+                Thread.sleep(80)
+            }
+        }
+        return false
     }
 
     fun stop() {

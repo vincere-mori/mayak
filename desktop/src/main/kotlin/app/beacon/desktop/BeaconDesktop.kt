@@ -56,9 +56,7 @@ import kotlin.system.exitProcess
 import app.beacon.desktop.BeaconTheme as T
 
 fun main() {
-    // Refresh Windows icon cache so Start Menu always shows the correct icon
-    // right after install without needing a reboot.
-    runCatching { ProcessBuilder("ie4uinit.exe", "-show").start() }
+    refreshShellIconCacheOnce()
 
     // Enable FlatLaf to draw the window titlebar (instead of Windows DWM)
     // so our brand colours actually apply to the title strip and buttons.
@@ -97,6 +95,32 @@ fun main() {
 
     SwingUtilities.invokeLater {
         BeaconDesktop().show()
+    }
+}
+
+/**
+ * After an install or upgrade, Windows Start-menu search often caches a generic
+ * icon for the new shortcut. ie4uinit refreshes the shell icon cache so the
+ * real Beacon icon appears next time the user types "Beacon". We tie this to
+ * the running .exe's path + last-modified time, so it fires exactly once per
+ * installed build — not on every launch.
+ */
+private fun refreshShellIconCacheOnce() {
+    runCatching {
+        val exePath = ProcessHandle.current().info().command().orElse(null) ?: return@runCatching
+        val exe = java.nio.file.Path.of(exePath)
+        if (!java.nio.file.Files.exists(exe)) return@runCatching
+        val mtime = java.nio.file.Files.getLastModifiedTime(exe).toMillis()
+        val marker = DesktopPaths.appDir.resolve("icon-cache.marker")
+        val signature = "$exePath|$mtime"
+        if (java.nio.file.Files.exists(marker) &&
+            java.nio.file.Files.readString(marker).trim() == signature) return@runCatching
+
+        ProcessBuilder("ie4uinit.exe", "-ClearIconCache").start()
+            .waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+        ProcessBuilder("ie4uinit.exe", "-show").start()
+            .waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+        java.nio.file.Files.writeString(marker, signature)
     }
 }
 
@@ -665,7 +689,7 @@ class BeaconDesktop(
                 refresh()
                 error?.let { showError(it.message ?: "не удалось подключиться") }
             }
-        }.start()
+        }.apply { isDaemon = true; start() }
     }
 
     private fun disconnect() {
@@ -674,7 +698,7 @@ class BeaconDesktop(
         Thread {
             runCatching { singBox.stop(); windowsProxy.restore() }
             SwingUtilities.invokeLater { connected = false; refresh() }
-        }.start()
+        }.apply { isDaemon = true; start() }
     }
 
     private fun reconnectAfterModeChange() {
