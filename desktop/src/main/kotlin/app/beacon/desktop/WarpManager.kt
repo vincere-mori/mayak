@@ -57,26 +57,33 @@ object WarpManager {
         conn.doOutput = true
         conn.outputStream.use { it.write(body) }
 
-        val code = conn.responseCode
-        if (code != 200) {
+        val resp = try {
+            val code = conn.responseCode
+            if (code != 200) throw Exception("WARP API error: HTTP $code")
+            conn.inputStream.use { it.readBytes() }.toString(Charsets.UTF_8)
+        } finally {
             conn.disconnect()
-            throw Exception("WARP API error: HTTP $code")
         }
 
-        val resp = conn.inputStream.use { it.readBytes() }.toString(Charsets.UTF_8)
-        conn.disconnect()
-
         val root   = json.parseToJsonElement(resp).jsonObject
-        val config = root["config"]!!.jsonObject
-        val peer   = config["peers"]!!.jsonArray[0].jsonObject
-        val iface  = config["interface"]!!.jsonObject["addresses"]!!.jsonObject
+        val config = root["config"]?.jsonObject
+            ?: throw IllegalStateException("WARP ответ не содержит 'config'")
+        val peer   = config["peers"]?.jsonArray?.getOrNull(0)?.jsonObject
+            ?: throw IllegalStateException("WARP ответ не содержит 'peers'")
+        val iface  = config["interface"]?.jsonObject?.get("addresses")?.jsonObject
+            ?: throw IllegalStateException("WARP ответ не содержит 'interface.addresses'")
 
         return WarpCredentials(
-            privateKey    = privateKeyB64,
-            localAddressV4 = iface["v4"]!!.jsonPrimitive.content,
+            privateKey     = privateKeyB64,
+            localAddressV4 = iface["v4"]?.jsonPrimitive?.content
+                ?: throw IllegalStateException("WARP ответ не содержит 'v4' адрес"),
             localAddressV6 = iface["v6"]?.jsonPrimitive?.content ?: "",
-            peerPublicKey  = peer["public_key"]!!.jsonPrimitive.content,
-            endpoint       = resolveEndpoint(peer["endpoint"]!!.jsonObject["host"]!!.jsonPrimitive.content),
+            peerPublicKey  = peer["public_key"]?.jsonPrimitive?.content
+                ?: throw IllegalStateException("WARP ответ не содержит 'public_key'"),
+            endpoint       = resolveEndpoint(
+                peer["endpoint"]?.jsonObject?.get("host")?.jsonPrimitive?.content
+                    ?: throw IllegalStateException("WARP ответ не содержит 'endpoint.host'")
+            ),
             reserved       = reservedBytes(config["client_id"]?.jsonPrimitive?.content)
         )
     }
@@ -128,9 +135,13 @@ object WarpManager {
         kpg.initialize(NamedParameterSpec.X25519)
         val kp = kpg.generateKeyPair()
 
-        // Private key scalar — Java returns it in little-endian (RFC 7748) already
-        val privScalar = (kp.private as XECPrivateKey).scalar
+        // Private key scalar — Java returns it in little-endian (RFC 7748) already.
+        // Pad to exactly 32 bytes: JDK may omit leading zero bytes.
+        val rawScalar = (kp.private as XECPrivateKey).scalar
             .orElseThrow { IllegalStateException("XEC private key scalar unavailable") }
+        val privScalar = if (rawScalar.size < 32) {
+            ByteArray(32).also { rawScalar.copyInto(it) }
+        } else rawScalar
 
         // Public key u-coordinate — Java BigInteger is big-endian; WireGuard needs LE
         val pubU  = (kp.public as XECPublicKey).u

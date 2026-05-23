@@ -19,17 +19,14 @@ class DesktopSecretBox(
     fun unprotect(value: String): String {
         if (value.startsWith(PLAIN_PREFIX)) {
             val raw = value.substringAfter(":")
-            return runCatching {
-                String(Base64.getDecoder().decode(raw), Charsets.UTF_8)
-            }.getOrDefault(value)
+            return String(Base64.getDecoder().decode(raw), Charsets.UTF_8)
         }
         if (value.startsWith(DPAPI_PREFIX) && isWindows()) {
             val raw = value.substringAfter(":")
-            return runCatching {
-                val bytes = Base64.getDecoder().decode(raw)
-                String(dpapiUnprotect(bytes), Charsets.UTF_8)
-            }.getOrElse { value }
+            val bytes = Base64.getDecoder().decode(raw)
+            return String(dpapiUnprotect(bytes), Charsets.UTF_8)
         }
+        // Unknown prefix or non-Windows DPAPI blob — treat as unprotected legacy value
         return value
     }
 

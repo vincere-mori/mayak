@@ -5,7 +5,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.beacon.core.model.DnsMode
 import app.beacon.core.model.ProxyProfile
+import app.beacon.core.model.Subscription
+import app.beacon.core.net.LatencyProbe
+import app.beacon.core.net.SubscriptionFetcher
 import app.beacon.core.parser.ProfileInputParser
+import app.beacon.core.parser.SubscriptionParser
 import app.beacon.core.singbox.SingBoxConfigBuilder
 import app.beacon.core.singbox.SingBoxConfigSettings
 import app.beacon.data.BeaconSettings
@@ -16,33 +20,46 @@ import app.beacon.ui.BeaconUiState
 import app.beacon.ui.ConnectionStatusText
 import app.beacon.vpn.SingBoxVpnGateway
 import app.beacon.vpn.VpnGateway
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.URI
+import java.util.UUID
 
 class MainViewModel(
     application: Application,
     private val repository: ProfileRepository = SharedPrefsProfileRepository(application),
     private val vpnGateway: VpnGateway = SingBoxVpnGateway(application),
     private val parser: ProfileInputParser = ProfileInputParser(),
-    private val configBuilder: SingBoxConfigBuilder = SingBoxConfigBuilder()
+    private val configBuilder: SingBoxConfigBuilder = SingBoxConfigBuilder(),
+    private val subscriptionFetcher: SubscriptionFetcher = SubscriptionFetcher(),
+    private val subscriptionParser: SubscriptionParser = SubscriptionParser(),
+    private val latencyProbe: LatencyProbe = LatencyProbe()
 ) : AndroidViewModel(application) {
     private val selectedTab = MutableStateFlow(BeaconTab.Home)
     private val draftKey = MutableStateFlow("")
     private val lastError = MutableStateFlow<String?>(null)
     private val busy = MutableStateFlow(false)
 
+    private val pingResults = MutableStateFlow<Map<String, Long?>>(emptyMap())
+    private val pingingIds = MutableStateFlow<Set<String>>(emptySet())
+
     private val profileSnapshot = combine(
         repository.observeProfiles(),
+        repository.observeSubscriptions(),
         repository.observeActiveProfileId(),
         repository.observeSettings()
-    ) { profiles, activeProfileId, settings ->
-        val active = profiles.firstOrNull { it.id == activeProfileId } ?: profiles.firstOrNull()
+    ) { profiles, subscriptions, activeProfileId, settings ->
+        val all = profiles + subscriptions.flatMap { it.profiles }
+        val active = all.firstOrNull { it.id == activeProfileId } ?: all.firstOrNull()
         ProfileSnapshot(
             profiles = profiles,
+            subscriptions = subscriptions,
             activeProfile = active,
             settings = settings
         )
@@ -64,17 +81,24 @@ class MainViewModel(
         )
     }
 
-    val state: StateFlow<BeaconUiState> = combine(profileSnapshot, uiInputs) { snapshot, inputs ->
+    private val pingSnapshot = combine(pingResults, pingingIds) { results, pinging ->
+        PingSnapshot(results, pinging)
+    }
+
+    val state: StateFlow<BeaconUiState> = combine(profileSnapshot, uiInputs, pingSnapshot) { snapshot, inputs, ping ->
         BeaconUiState(
             selectedTab = inputs.selectedTab,
             profiles = snapshot.profiles,
+            subscriptions = snapshot.subscriptions,
             activeProfile = snapshot.activeProfile,
             draftKey = inputs.draftKey,
             status = inputs.vpnState.status,
             statusText = ConnectionStatusText.from(inputs.vpnState.status),
             lastError = inputs.lastError ?: inputs.vpnState.error,
             settings = snapshot.settings,
-            isBusy = inputs.isBusy
+            isBusy = inputs.isBusy,
+            pingResults = ping.results,
+            pingingIds = ping.pinging
         )
     }.stateIn(
         scope = viewModelScope,
@@ -113,6 +137,62 @@ class MainViewModel(
         }
     }
 
+    fun addSubscription(url: String) {
+        val trimmed = url.trim()
+        runAction {
+            if (!trimmed.startsWith("http://", true) && !trimmed.startsWith("https://", true)) {
+                throw IllegalArgumentException("ссылка подписки должна начинаться с http:// или https://")
+            }
+            val servers = withContext(Dispatchers.IO) {
+                subscriptionParser.parse(subscriptionFetcher.fetch(trimmed))
+            }
+            if (servers.isEmpty()) throw IllegalStateException("в подписке нет VLESS Reality серверов")
+            repository.saveSubscription(
+                Subscription(
+                    id = UUID.randomUUID().toString().take(12),
+                    name = subscriptionName(trimmed),
+                    url = trimmed,
+                    profiles = servers,
+                    updatedAtMillis = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    fun refreshSubscription(subscription: Subscription) {
+        runAction {
+            val servers = withContext(Dispatchers.IO) {
+                subscriptionParser.parse(subscriptionFetcher.fetch(subscription.url))
+            }
+            if (servers.isEmpty()) throw IllegalStateException("в подписке нет серверов")
+            repository.saveSubscription(
+                subscription.copy(profiles = servers, updatedAtMillis = System.currentTimeMillis())
+            )
+        }
+    }
+
+    fun deleteSubscription(subscriptionId: String) {
+        runAction {
+            repository.deleteSubscription(subscriptionId)
+        }
+    }
+
+    fun pingSubscription(subscription: Subscription) {
+        subscription.profiles.forEach { pingServer(it) }
+    }
+
+    fun pingServer(profile: ProxyProfile) {
+        if (profile.id in pingingIds.value) return
+        pingingIds.value = pingingIds.value + profile.id
+        viewModelScope.launch {
+            val ms = withContext(Dispatchers.IO) {
+                latencyProbe.tcpLatencyMs(profile.host, profile.port)
+            }
+            pingResults.value = pingResults.value + (profile.id to ms)
+            pingingIds.value = pingingIds.value - profile.id
+        }
+    }
+
     fun setDnsMode(mode: DnsMode) {
         runAction {
             repository.updateSettings(repository.currentSettings().copy(dnsMode = mode))
@@ -147,6 +227,11 @@ class MainViewModel(
         }
     }
 
+    private fun subscriptionName(url: String): String {
+        val host = runCatching { URI(url).host }.getOrNull()?.takeIf { it.isNotBlank() }
+        return host ?: "Подписка"
+    }
+
     private fun runAction(block: suspend () -> Unit) {
         viewModelScope.launch {
             busy.value = true
@@ -159,6 +244,7 @@ class MainViewModel(
 
     private data class ProfileSnapshot(
         val profiles: List<ProxyProfile>,
+        val subscriptions: List<Subscription>,
         val activeProfile: ProxyProfile?,
         val settings: BeaconSettings
     )
@@ -169,5 +255,10 @@ class MainViewModel(
         val draftKey: String,
         val lastError: String?,
         val isBusy: Boolean
+    )
+
+    private data class PingSnapshot(
+        val results: Map<String, Long?>,
+        val pinging: Set<String>
     )
 }

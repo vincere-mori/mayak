@@ -1,6 +1,7 @@
 package app.beacon.desktop
 
 import app.beacon.core.model.ProxyProfile
+import app.beacon.core.model.Subscription
 import app.beacon.core.model.DnsMode
 import app.beacon.core.singbox.InboundMode
 import kotlinx.serialization.Serializable
@@ -29,13 +30,16 @@ class DesktopProfileStore(
 
     fun save(state: DesktopProfileState) {
         file.parent?.let { Files.createDirectories(it) }
-        file.writeText(secretBox.protect(json.encodeToString(state)))
+        val tmp = file.resolveSibling(file.fileName.toString() + ".tmp")
+        tmp.writeText(secretBox.protect(json.encodeToString(state)))
+        Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
     }
 }
 
 @Serializable
 data class DesktopProfileState(
     val profiles: List<ProxyProfile> = emptyList(),
+    val subscriptions: List<Subscription> = emptyList(),
     val activeProfileId: String? = null,
     val dnsMode: DnsMode = DnsMode.Cloudflare,
     val ipv6Enabled: Boolean = false,
@@ -43,6 +47,10 @@ data class DesktopProfileState(
     val warpEnabled: Boolean = false,
     val warpCredentials: WarpCredentials? = null
 ) {
+    /** Every server the user has — standalone keys and subscription servers. */
+    val allProfiles: List<ProxyProfile>
+        get() = profiles + subscriptions.flatMap { it.profiles }
+
     val activeProfile: ProxyProfile?
-        get() = profiles.firstOrNull { it.id == activeProfileId } ?: profiles.firstOrNull()
+        get() = allProfiles.let { all -> all.firstOrNull { it.id == activeProfileId } ?: all.firstOrNull() }
 }

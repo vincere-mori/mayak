@@ -94,8 +94,9 @@ class SingBoxConfigBuilder(
 
     private fun warpDomains() = listOf(
         "google.com", "googleapis.com", "googleusercontent.com",
-        "gstatic.com", "accounts.google.com", "ai.google.dev",
-        "generativelanguage.googleapis.com", "gemini.google.com"
+        "gstatic.com", "ggpht.com", "gvt1.com", "gvt2.com", "gvt3.com",
+        "recaptcha.net", "youtube.com", "youtubei.googleapis.com",
+        "googlevideo.com", "ytimg.com", "ai.google.dev"
     )
 
     private fun tun(settings: SingBoxConfigSettings): JsonObject {
@@ -165,6 +166,7 @@ class SingBoxConfigBuilder(
         return buildJsonObject {
             put("type", "wireguard")
             put("tag", "warp")
+            put("detour", "proxy")
             // "system" is NOT a valid field for endpoints[] in sing-box 1.11+
             // (it was only for the old outbounds[] wireguard type — removed to avoid parse issues)
             put("mtu", 1280)

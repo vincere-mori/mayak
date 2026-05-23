@@ -87,6 +87,7 @@ class SingBoxConfigBuilderTest {
         val warpRule = warpJson["route"]!!.jsonObject["rules"]!!.jsonArray[3].jsonObject
 
         assertEquals("wireguard", endpoint["type"]!!.jsonPrimitive.content)
+        assertEquals("proxy", endpoint["detour"]!!.jsonPrimitive.content)
         assertEquals("162.159.192.1", peer["address"]!!.jsonPrimitive.content)
         assertEquals(listOf(1, 2, 3), peer["reserved"]!!.jsonArray.map { it.jsonPrimitive.int })
         assertEquals("warp", warpRule["outbound"]!!.jsonPrimitive.content)

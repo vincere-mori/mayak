@@ -10,7 +10,7 @@ class SingBoxProcess(
     private val configFile: Path = DesktopPaths.configFile,
     private val logFile: Path = DesktopPaths.logFile
 ) {
-    private var process: Process? = null
+    @Volatile private var process: Process? = null
 
     init {
         Runtime.getRuntime().addShutdownHook(Thread { stop() })

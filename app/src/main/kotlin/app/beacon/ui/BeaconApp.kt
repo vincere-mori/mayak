@@ -16,11 +16,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.PowerSettingsNew
+import androidx.compose.material.icons.outlined.Public
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -47,6 +51,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -55,9 +62,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.beacon.MainViewModel
+import app.beacon.core.geo.CountryDetector
 import app.beacon.core.model.DnsMode
 import app.beacon.core.model.ProfileKind
 import app.beacon.core.model.ProxyProfile
+import app.beacon.core.model.Subscription
 import app.beacon.vpn.VpnStatus
 
 @Composable
@@ -78,7 +87,12 @@ fun BeaconApp(
             onSelectProfile = viewModel::selectProfile,
             onDeleteProfile = viewModel::deleteProfile,
             onDnsModeChanged = viewModel::setDnsMode,
-            onIpv6Changed = viewModel::setIpv6Enabled
+            onIpv6Changed = viewModel::setIpv6Enabled,
+            onAddSubscription = viewModel::addSubscription,
+            onRefreshSubscription = viewModel::refreshSubscription,
+            onDeleteSubscription = viewModel::deleteSubscription,
+            onPingSubscription = viewModel::pingSubscription,
+            onPingServer = viewModel::pingServer
         )
     }
 }
@@ -95,7 +109,12 @@ private fun BeaconScreen(
     onSelectProfile: (String) -> Unit,
     onDeleteProfile: (String) -> Unit,
     onDnsModeChanged: (DnsMode) -> Unit,
-    onIpv6Changed: (Boolean) -> Unit
+    onIpv6Changed: (Boolean) -> Unit,
+    onAddSubscription: (String) -> Unit,
+    onRefreshSubscription: (Subscription) -> Unit,
+    onDeleteSubscription: (String) -> Unit,
+    onPingSubscription: (Subscription) -> Unit,
+    onPingServer: (ProxyProfile) -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -134,6 +153,16 @@ private fun BeaconScreen(
                 onSaveDraft = onSaveDraft,
                 onSelectProfile = onSelectProfile,
                 onDeleteProfile = onDeleteProfile
+            )
+            BeaconTab.Subscriptions -> SubscriptionsTab(
+                state = state,
+                padding = padding,
+                onAddSubscription = onAddSubscription,
+                onRefreshSubscription = onRefreshSubscription,
+                onDeleteSubscription = onDeleteSubscription,
+                onPingSubscription = onPingSubscription,
+                onPingServer = onPingServer,
+                onSelectProfile = onSelectProfile
             )
             BeaconTab.Settings -> SettingsTab(
                 state = state,
@@ -508,6 +537,220 @@ private fun BeaconTab.icon(): ImageVector {
     return when (this) {
         BeaconTab.Home -> Icons.Outlined.Home
         BeaconTab.Profiles -> Icons.Outlined.Key
+        BeaconTab.Subscriptions -> Icons.Outlined.Public
         BeaconTab.Settings -> Icons.Outlined.Settings
     }
+}
+
+private fun flagEmoji(code: String?): String {
+    if (code == null || code.length != 2) return "🌐"
+    val upper = code.uppercase()
+    if (upper.any { it !in 'A'..'Z' }) return "🌐"
+    val builder = StringBuilder()
+    upper.forEach { builder.appendCodePoint(0x1F1E6 + (it - 'A')) }
+    return builder.toString()
+}
+
+@Composable
+private fun SubscriptionsTab(
+    state: BeaconUiState,
+    padding: PaddingValues,
+    onAddSubscription: (String) -> Unit,
+    onRefreshSubscription: (Subscription) -> Unit,
+    onDeleteSubscription: (String) -> Unit,
+    onPingSubscription: (Subscription) -> Unit,
+    onPingServer: (ProxyProfile) -> Unit,
+    onSelectProfile: (String) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            AddSubscriptionCard(
+                onAdd = onAddSubscription,
+                enabled = !state.isBusy
+            )
+        }
+        state.lastError?.let { error ->
+            item { ErrorCard(error) }
+        }
+        if (state.subscriptions.isEmpty()) {
+            item {
+                Text(
+                    text = "Подписок пока нет. Вставь ссылку подписки выше — она развернётся в список серверов.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        items(state.subscriptions, key = { it.id }) { subscription ->
+            SubscriptionCard(
+                subscription = subscription,
+                activeProfileId = state.activeProfile?.id,
+                pingResults = state.pingResults,
+                pingingIds = state.pingingIds,
+                busy = state.isBusy,
+                onRefresh = { onRefreshSubscription(subscription) },
+                onDelete = { onDeleteSubscription(subscription.id) },
+                onPingAll = { onPingSubscription(subscription) },
+                onPingServer = onPingServer,
+                onSelectServer = { onSelectProfile(it.id) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun AddSubscriptionCard(
+    onAdd: (String) -> Unit,
+    enabled: Boolean
+) {
+    var url by remember { mutableStateOf("") }
+    Card(shape = MaterialTheme.shapes.medium) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Ссылка подписки") },
+                placeholder = { Text("https://...") },
+                singleLine = true
+            )
+            Button(
+                onClick = {
+                    onAdd(url)
+                    url = ""
+                },
+                enabled = enabled && url.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Outlined.CloudDownload, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Добавить подписку")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubscriptionCard(
+    subscription: Subscription,
+    activeProfileId: String?,
+    pingResults: Map<String, Long?>,
+    pingingIds: Set<String>,
+    busy: Boolean,
+    onRefresh: () -> Unit,
+    onDelete: () -> Unit,
+    onPingAll: () -> Unit,
+    onPingServer: (ProxyProfile) -> Unit,
+    onSelectServer: (ProxyProfile) -> Unit
+) {
+    Card(shape = MaterialTheme.shapes.medium) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = subscription.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${subscription.profiles.size} серверов",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(onClick = onPingAll, enabled = !busy) {
+                    Icon(Icons.Outlined.Bolt, contentDescription = "Пинг всех")
+                }
+                IconButton(onClick = onRefresh, enabled = !busy) {
+                    Icon(Icons.Outlined.Refresh, contentDescription = "Обновить")
+                }
+                IconButton(onClick = onDelete, enabled = !busy) {
+                    Icon(Icons.Outlined.Delete, contentDescription = "Удалить")
+                }
+            }
+            if (subscription.profiles.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider()
+            }
+            subscription.profiles.forEach { server ->
+                ServerRow(
+                    server = server,
+                    selected = server.id == activeProfileId,
+                    pinging = server.id in pingingIds,
+                    hasPing = pingResults.containsKey(server.id),
+                    pingMs = pingResults[server.id],
+                    onSelect = { onSelectServer(server) },
+                    onPing = { onPingServer(server) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServerRow(
+    server: ProxyProfile,
+    selected: Boolean,
+    pinging: Boolean,
+    hasPing: Boolean,
+    pingMs: Long?,
+    onSelect: () -> Unit,
+    onPing: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = flagEmoji(CountryDetector.detect(server.name)),
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = server.name,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (selected) MaterialTheme.colorScheme.secondary
+                else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "${server.host}:${server.port}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        TextButton(onClick = onPing) {
+            Text(pingText(pinging, hasPing, pingMs))
+        }
+        if (selected) {
+            AssistChip(onClick = onSelect, label = { Text("активен") })
+        } else {
+            OutlinedButton(onClick = onSelect) {
+                Text("выбрать")
+            }
+        }
+    }
+}
+
+private fun pingText(pinging: Boolean, hasPing: Boolean, pingMs: Long?): String = when {
+    pinging -> "…"
+    !hasPing -> "пинг"
+    pingMs == null -> "—"
+    else -> "$pingMs ms"
 }

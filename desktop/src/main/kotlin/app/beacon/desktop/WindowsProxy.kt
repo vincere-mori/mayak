@@ -86,7 +86,9 @@ class WindowsProxy(
                 .redirectErrorStream(true)
                 .start()
             val output = process.inputStream.bufferedReader().readText()
-            process.waitFor()
+            if (!process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                process.destroyForcibly()
+            }
             return output
         }
     }

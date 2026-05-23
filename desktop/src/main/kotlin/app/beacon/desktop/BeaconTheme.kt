@@ -7,6 +7,7 @@ import java.awt.Dimension
 import java.awt.Font
 import java.awt.Graphics
 import java.awt.Graphics2D
+import java.awt.GradientPaint
 import java.awt.RenderingHints
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
@@ -26,6 +27,7 @@ object BeaconTheme {
     val CARD = Color(22, 32, 70, 235)
     val CARD_SOLID = Color(22, 32, 70)
     val BG_INPUT = Color(15, 22, 54)
+    val BG_INPUT_HOVER = Color(23, 34, 76)
     val BORDER = Color(42, 58, 110)
     val BORDER_SOFT = Color(35, 48, 92)
     val TEXT = Color(225, 232, 250)
@@ -44,9 +46,9 @@ object BeaconTheme {
         foreground = Color.WHITE
         font = font.deriveFont(Font.BOLD, 13f)
         isFocusPainted = false
-        border = BorderFactory.createEmptyBorder(0, 18, 0, 18)
+        border = BorderFactory.createEmptyBorder(8, 20, 8, 20)
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        putClientProperty("Button.arc", 10)
+        putClientProperty("Button.arc", 18)
         addMouseListener(object : MouseAdapter() {
             override fun mouseEntered(e: MouseEvent) { background = ACCENT_HOVER; repaint() }
             override fun mouseExited(e: MouseEvent) { background = ACCENT; repaint() }
@@ -55,19 +57,19 @@ object BeaconTheme {
 
     fun ghostButton(text: String) = JButton(text).apply {
         isOpaque = true
-        background = CARD_SOLID
+        background = BG_INPUT
         foreground = TEXT_DIM
-        font = font.deriveFont(Font.PLAIN, 12f)
+        font = font.deriveFont(Font.BOLD, 12f)
         isFocusPainted = false
         border = BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(BORDER, 1, true),
-            BorderFactory.createEmptyBorder(6, 12, 6, 12)
+            BorderFactory.createLineBorder(BORDER_SOFT, 1, true),
+            BorderFactory.createEmptyBorder(7, 14, 7, 14)
         )
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-        putClientProperty("Button.arc", 8)
+        putClientProperty("Button.arc", 16)
         addMouseListener(object : MouseAdapter() {
-            override fun mouseEntered(e: MouseEvent) { foreground = TEXT; repaint() }
-            override fun mouseExited(e: MouseEvent) { foreground = TEXT_DIM; repaint() }
+            override fun mouseEntered(e: MouseEvent) { background = BG_INPUT_HOVER; foreground = TEXT; repaint() }
+            override fun mouseExited(e: MouseEvent) { background = BG_INPUT; foreground = TEXT_DIM; repaint() }
         })
     }
 
@@ -81,9 +83,14 @@ object BeaconTheme {
         cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
         toolTipText = tip
         addMouseListener(object : MouseAdapter() {
-            override fun mouseEntered(e: MouseEvent) { foreground = TEXT; repaint() }
+            override fun mouseEntered(e: MouseEvent) { foreground = Color.WHITE; repaint() }
             override fun mouseExited(e: MouseEvent) { foreground = TEXT_DIM; repaint() }
         })
+    }
+
+    fun softFill(g2: Graphics2D, w: Int, h: Int, top: Color, bottom: Color, radius: Int) {
+        g2.paint = GradientPaint(0f, 0f, top, 0f, h.toFloat(), bottom)
+        g2.fillRoundRect(0, 0, w, h, radius, radius)
     }
 
     fun card(radius: Float = 14f): JPanel = object : JPanel() {

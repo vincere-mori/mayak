@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.1.5",
+    [string]$Version = "0.2.0",
     [switch]$SkipBuild
 )
 
@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 $Repo = Resolve-Path (Join-Path $PSScriptRoot "..")
 $CleanVersion = $Version.TrimStart("v")
 if ($CleanVersion -notmatch "^\d+\.\d+\.\d+$") {
-    $CleanVersion = "0.1.5"
+    $CleanVersion = "0.2.0"
 }
 
 $WixSha256 = "2c1888d5d1dba377fc7fa14444cf556963747ff9a0a289a3599cf09da03b9e2e"

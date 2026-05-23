@@ -40,6 +40,11 @@ class LighthouseHero : JPanel() {
 
     private var fogAlpha = 0f
 
+    // Bulb warm-color drift: 0 = cool blue-white, 1 = warm yellow
+    private var bulbColorT      = 0f
+    private var bulbColorTarget = 0f
+    private var nextColorShiftAt = System.currentTimeMillis() + 5000L
+
     // Pre-allocated paths — reused every frame via reset() to avoid GC pressure
     private val wavePaths     = Array(4) { GeneralPath() }
     private val beamPath      = GeneralPath()
@@ -49,8 +54,10 @@ class LighthouseHero : JPanel() {
     private val roofPath      = GeneralPath()
     private val highlightPath = GeneralPath()
     private val reflPath      = GeneralPath()
+    private val rockPath      = GeneralPath()
+    private val cliffPath     = GeneralPath()
 
-    private val timer = Timer(16) {
+    private val timer: Timer = Timer(16) {
         val now = System.currentTimeMillis()
         val targetSpeed = when (heroState) {
             HeroState.ON -> 0.012
@@ -73,7 +80,18 @@ class LighthouseHero : JPanel() {
             HeroState.CONNECTING -> 0.50f
             HeroState.ON -> 1.0f
         }
-        fogAlpha += (fogTarget - fogAlpha) * 0.004f
+        fogAlpha += (fogTarget - fogAlpha) * 0.028f
+
+        // Bulb color: slowly drifts to warm yellow and back when ON
+        if (heroState == HeroState.ON) {
+            if (now >= nextColorShiftAt) {
+                bulbColorTarget = if (bulbColorTarget < 0.5f) 0.9f else 0f
+                nextColorShiftAt = now + (4000 + (Math.random() * 9000)).toLong()
+            }
+            bulbColorT += (bulbColorTarget - bulbColorT) * 0.006f
+        } else {
+            bulbColorT += (0f - bulbColorT) * 0.04f
+        }
 
         // Adaptive frame rate: 60fps when active, ~30fps while fading, ~20fps when idle
         val targetDelay = when {
@@ -81,7 +99,7 @@ class LighthouseHero : JPanel() {
             fogAlpha > 0.01f || shootingStars.isNotEmpty() -> 33
             else -> 50
         }
-        if (delay != targetDelay) delay = targetDelay
+        if (timer.delay != targetDelay) timer.delay = targetDelay
 
         repaint()
     }
@@ -125,10 +143,12 @@ class LighthouseHero : JPanel() {
         drawAtmosphereGlow(g2, baseX, bulbCy, w, h)
         drawBeam(g2, baseX, bulbCy, w, h, horizonY)
         drawSea(g2, w, h, horizonY, baseX)
+        drawStonePier(g2, baseX, baseY, towerH)
         drawIslandWaterBlend(g2, baseX, baseY, towerH)
         drawLighthouseReflection(g2, baseX, horizonY, towerH)
         drawLighthouse(g2, baseX, baseY, towerH)
         drawBulbGlow(g2, baseX, bulbCy)
+        drawForegroundCliff(g2, w, h)
         drawCloak(g2, w, h, horizonY)
         drawEdgeFade(g2, w, h)
     }
@@ -141,9 +161,6 @@ class LighthouseHero : JPanel() {
         g2.fillRect(0, 0, w, (h * 0.35).toInt())
         g2.paint = GradientPaint(0f, h * 0.35f, sky2, 0f, horizonY.toFloat(), sky3)
         g2.fillRect(0, (h * 0.35).toInt(), w, horizonY - (h * 0.35).toInt())
-        g2.paint = GradientPaint(0f, (horizonY - 8).toFloat(), Color(80, 100, 160, 0),
-            0f, (horizonY + 2).toFloat(), Color(120, 150, 200, 60))
-        g2.fillRect(0, horizonY - 8, w, 10)
     }
 
     /** Crescent moon — subtle, top-right of the sky. */
@@ -336,9 +353,9 @@ class LighthouseHero : JPanel() {
         }
         if (visibility <= 0.01f) return
 
-        val warm = heroState == HeroState.CONNECTING
-        val core = if (warm) Color(255, 225, 140) else Color(190, 235, 255)
-        val glow = if (warm) Color(255, 195, 90)  else Color(120, 200, 255)
+        val warmth = if (heroState == HeroState.CONNECTING) 1f else bulbColorT
+        val core = Color(lerpInt(190, 255, warmth), lerpInt(235, 225, warmth), lerpInt(255, 140, warmth))
+        val glow = Color(lerpInt(120, 255, warmth), lerpInt(200, 195, warmth), lerpInt(255, 90, warmth))
         val old  = g2.composite
 
         val targetX    = originX + sin(sweepPhase) * w * 0.34
@@ -391,11 +408,29 @@ class LighthouseHero : JPanel() {
         )
         g2.fillRect(0, horizonY, w, h - horizonY)
 
+        // Smooth sky→sea blend: the sky colour fades into the sea across a tall
+        // band straddling the horizon, so the waterline is a soft gradient
+        // rather than a hard straight seam.
+        val blendTop = horizonY - 30
+        val blendBot = horizonY + 40
         g2.paint = GradientPaint(
-            0f, (horizonY - 10).toFloat(), Color(120, 150, 210, 0),
-            0f, (horizonY + 28).toFloat(), Color(120, 150, 210, 42)
+            0f, blendTop.toFloat(), Color(36, 48, 96),
+            0f, blendBot.toFloat(), Color(18, 28, 70, 0)
         )
-        g2.fillRect(0, horizonY - 10, w, 42)
+        g2.fillRect(0, blendTop, w, blendBot - blendTop)
+
+        // Soft horizon glow — fades in above the waterline and back out below it,
+        // so sky and sea meet without a hard seam.
+        g2.paint = GradientPaint(
+            0f, (horizonY - 26).toFloat(), Color(120, 150, 210, 0),
+            0f, horizonY.toFloat(),        Color(120, 150, 210, 38)
+        )
+        g2.fillRect(0, horizonY - 26, w, 26)
+        g2.paint = GradientPaint(
+            0f, horizonY.toFloat(),        Color(120, 150, 210, 38),
+            0f, (horizonY + 46).toFloat(), Color(120, 150, 210, 0)
+        )
+        g2.fillRect(0, horizonY, w, 46)
 
         for (band in 0..5) {
             val y = horizonY + band * (h - horizonY) / 6
@@ -441,6 +476,120 @@ class LighthouseHero : JPanel() {
                 }
             }
         }
+
+        g2.composite = old
+    }
+
+    /**
+     * Stone pier and rocks at the island's waterline — the visual anchor between
+     * the lighthouse and the sea. Draws two flanking stone jetties with scattered
+     * boulders, then foam where the water breaks against them.
+     */
+    private fun drawStonePier(g2: Graphics2D, baseX: Int, baseY: Int, towerH: Int) {
+        val pw   = (towerH * 0.34).toFloat()   // half-width of island
+        val py   = (baseY - 3).toFloat()        // waterline Y
+        val old  = g2.composite
+
+        val stoneDeep  = Color(22, 30, 58)
+        val stoneMid   = Color(36, 48, 82)
+        val stoneLight = Color(54, 70, 108)
+        val foamCol    = Color(190, 215, 245, 160)
+
+        g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1f)
+
+        // ── Left jetty ──────────────────────────────────────────────────
+        // Main stone slab extending left
+        rockPath.reset()
+        rockPath.moveTo(baseX - pw * 0.55f, py + 4)
+        rockPath.lineTo(baseX - pw * 0.62f, py - 5)
+        rockPath.lineTo(baseX - pw * 1.10f, py - 3)
+        rockPath.lineTo(baseX - pw * 1.28f, py + 1)
+        rockPath.lineTo(baseX - pw * 1.18f, py + 6)
+        rockPath.lineTo(baseX - pw * 0.60f, py + 7)
+        rockPath.closePath()
+        g2.paint = GradientPaint(
+            baseX - pw * 0.6f, py - 5f, stoneMid,
+            baseX - pw * 0.6f, py + 7f, stoneDeep
+        )
+        g2.fill(rockPath)
+        g2.color = stoneLight; g2.stroke = BasicStroke(0.8f); g2.draw(rockPath)
+
+        // Boulder left-outer
+        rockPath.reset()
+        rockPath.moveTo(baseX - pw * 1.22f, py + 2)
+        rockPath.lineTo(baseX - pw * 1.30f, py - 7)
+        rockPath.lineTo(baseX - pw * 1.48f, py - 4)
+        rockPath.lineTo(baseX - pw * 1.52f, py + 3)
+        rockPath.closePath()
+        g2.color = stoneDeep; g2.fill(rockPath)
+        g2.color = stoneMid;  g2.draw(rockPath)
+
+        // Small boulder far left
+        rockPath.reset()
+        rockPath.moveTo(baseX - pw * 1.55f, py + 1)
+        rockPath.lineTo(baseX - pw * 1.60f, py - 5)
+        rockPath.lineTo(baseX - pw * 1.72f, py - 2)
+        rockPath.lineTo(baseX - pw * 1.68f, py + 4)
+        rockPath.closePath()
+        g2.color = Color(18, 25, 50); g2.fill(rockPath)
+
+        // ── Right jetty ─────────────────────────────────────────────────
+        rockPath.reset()
+        rockPath.moveTo(baseX + pw * 0.55f, py + 4)
+        rockPath.lineTo(baseX + pw * 0.62f, py - 5)
+        rockPath.lineTo(baseX + pw * 1.10f, py - 3)
+        rockPath.lineTo(baseX + pw * 1.28f, py + 1)
+        rockPath.lineTo(baseX + pw * 1.18f, py + 6)
+        rockPath.lineTo(baseX + pw * 0.60f, py + 7)
+        rockPath.closePath()
+        g2.paint = GradientPaint(
+            baseX + pw * 0.6f, py - 5f, stoneMid,
+            baseX + pw * 0.6f, py + 7f, stoneDeep
+        )
+        g2.fill(rockPath)
+        g2.color = stoneLight; g2.stroke = BasicStroke(0.8f); g2.draw(rockPath)
+
+        // Boulder right-outer
+        rockPath.reset()
+        rockPath.moveTo(baseX + pw * 1.22f, py + 2)
+        rockPath.lineTo(baseX + pw * 1.30f, py - 7)
+        rockPath.lineTo(baseX + pw * 1.48f, py - 4)
+        rockPath.lineTo(baseX + pw * 1.52f, py + 3)
+        rockPath.closePath()
+        g2.color = stoneDeep; g2.fill(rockPath)
+        g2.color = stoneMid;  g2.draw(rockPath)
+
+        // Small boulder far right
+        rockPath.reset()
+        rockPath.moveTo(baseX + pw * 1.55f, py + 1)
+        rockPath.lineTo(baseX + pw * 1.60f, py - 5)
+        rockPath.lineTo(baseX + pw * 1.72f, py - 2)
+        rockPath.lineTo(baseX + pw * 1.68f, py + 4)
+        rockPath.closePath()
+        g2.color = Color(18, 25, 50); g2.fill(rockPath)
+
+        // ── Foam / surf line ────────────────────────────────────────────
+        // Animated: slight offset per wave so it feels alive (waveOffsets[0] used)
+        g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.55f)
+        g2.color = foamCol
+        g2.stroke = BasicStroke(1.3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+        // Left foam arcs along jetty edge
+        g2.drawArc((baseX - pw * 1.32f).toInt(), (py - 4).toInt(),
+            (pw * 0.80f).toInt(), 8, 15, 130)
+        g2.drawArc((baseX - pw * 1.75f).toInt(), (py - 2).toInt(),
+            (pw * 0.30f).toInt(), 6, 20, 120)
+        // Right foam arcs
+        g2.drawArc((baseX + pw * 0.52f).toInt(), (py - 4).toInt(),
+            (pw * 0.80f).toInt(), 8, 35, -130)
+        g2.drawArc((baseX + pw * 1.45f).toInt(), (py - 2).toInt(),
+            (pw * 0.30f).toInt(), 6, 10, -120)
+
+        // Thin surf-line connecting the whole structure
+        g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.28f)
+        g2.color = Color(210, 230, 255)
+        g2.stroke = BasicStroke(0.9f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+        g2.drawLine((baseX - pw * 1.72f).toInt(), (py + 1).toInt(),
+                    (baseX + pw * 1.72f).toInt(), (py + 1).toInt())
 
         g2.composite = old
     }
@@ -645,34 +794,45 @@ class LighthouseHero : JPanel() {
             HeroState.CONNECTING -> (0.65f + sin((now - stateChangedAt) / 180.0).toFloat() * 0.3f).coerceIn(0f, 1f)
             HeroState.OFF        -> (0.10f + sin(now / 2400.0).toFloat() * 0.06f).coerceIn(0.04f, 0.18f)
         }
+
+        // Float pulse — no toInt() so radius is smooth, no discrete pixel jumps
         val pulse = when (heroState) {
             HeroState.ON         -> 1.0f + sin(now / 900.0).toFloat() * 0.07f
             HeroState.CONNECTING -> 1.0f + sin((now - stateChangedAt) / 180.0).toFloat() * 0.11f
             HeroState.OFF        -> 1.0f + sin(now / 2400.0).toFloat() * 0.04f
         }
-        val bulbR = (7 * pulse).toInt().coerceAtLeast(4)
+        val bulbR  = (7f * pulse).coerceAtLeast(4f)   // Float — drawn via Ellipse2D.Float
+        val haloR  = bulbR * 4f
 
-        val core = if (warm) Color(255, 230, 150) else Color(200, 240, 255)
-        val halo = if (warm) Color(255, 200, 80)  else Color(120, 200, 255)
+        // Core/halo color: CONNECTING = always warm; ON = cool with occasional warm drift (bulbColorT)
+        val core: Color
+        val halo: Color
+        if (warm) {
+            core = Color(255, 230, 150)
+            halo = Color(255, 200, 80)
+        } else {
+            val t = bulbColorT
+            core = Color(lerpInt(200, 255, t), lerpInt(240, 210, t), lerpInt(255, 120, t))
+            halo = Color(lerpInt(120, 255, t), lerpInt(200, 185, t), lerpInt(255,  60, t))
+        }
 
-        val haloR = bulbR * 4
         val old = g2.paint
         g2.paint = RadialGradientPaint(
-            cx.toFloat(), cy.toFloat(), haloR.toFloat(),
+            cx.toFloat(), cy.toFloat(), haloR,
             floatArrayOf(0f, 1f),
             arrayOf(
                 Color(halo.red, halo.green, halo.blue, (200 * onAlpha).toInt().coerceIn(0, 255)),
                 Color(halo.red, halo.green, halo.blue, 0)
             )
         )
-        g2.fillOval(cx - haloR, cy - haloR, haloR * 2, haloR * 2)
+        g2.fillOval((cx - haloR).toInt(), (cy - haloR).toInt(), (haloR * 2).toInt(), (haloR * 2).toInt())
         g2.paint = old
 
         g2.color = core
-        g2.fill(Ellipse2D.Double((cx - bulbR).toDouble(), (cy - bulbR).toDouble(),
-            (bulbR * 2).toDouble(), (bulbR * 2).toDouble()))
+        g2.fill(Ellipse2D.Float(cx - bulbR, cy - bulbR, bulbR * 2f, bulbR * 2f))
         g2.color = Color(255, 255, 255, 220)
-        g2.fillOval(cx - bulbR / 2 - 1, cy - bulbR / 2 - 1, 3, 3)
+        val specR = (bulbR * 0.35f).toInt().coerceAtLeast(1)
+        g2.fillOval(cx - specR - 1, cy - specR - 1, 3, 3)
     }
 
     /**
@@ -715,6 +875,81 @@ class LighthouseHero : JPanel() {
             )
             g2.fillOval(baseX - gr, reflTopY - gr / 2, gr * 2, gr * 2)
         }
+
+        g2.composite = old
+    }
+
+    /**
+     * Dark foreground cliff — viewer stands on a rocky outcrop, sea and lighthouse
+     * are in the midground beyond. Sides rise high, center dips low so the lighthouse
+     * stays fully visible. Gives the scene depth and correct perspective framing.
+     */
+    private fun drawForegroundCliff(g2: Graphics2D, w: Int, h: Int) {
+        // Top-edge silhouette control points: (xFraction, yFraction of h)
+        // Sides tall (~0.70–0.76h), dip to ~0.93h in the centre.
+        val pts = arrayOf(
+            0.00f to 0.76f,
+            0.05f to 0.71f,
+            0.10f to 0.74f,
+            0.16f to 0.69f,
+            0.22f to 0.75f,
+            0.29f to 0.82f,
+            0.37f to 0.88f,
+            0.46f to 0.935f,
+            0.54f to 0.935f,
+            0.63f to 0.88f,
+            0.71f to 0.82f,
+            0.78f to 0.75f,
+            0.84f to 0.70f,
+            0.90f to 0.74f,
+            0.95f to 0.71f,
+            1.00f to 0.76f
+        )
+
+        cliffPath.reset()
+        cliffPath.moveTo(0f, h.toFloat())
+        cliffPath.lineTo(0f, pts[0].second * h)
+        for (p in pts) cliffPath.lineTo(p.first * w, p.second * h)
+        cliffPath.lineTo(w.toFloat(), h.toFloat())
+        cliffPath.closePath()
+
+        // Main fill — near-black with a cool blue undertone, darker at the bottom
+        g2.paint = GradientPaint(
+            0f, h * 0.70f, Color(16, 21, 46),
+            0f, h.toFloat(),  Color(3, 4, 12)
+        )
+        g2.fill(cliffPath)
+
+        // Subtle side rim — the far edges catch faint skylight
+        val sideGlowW = w * 0.22f
+        val old = g2.composite
+        g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.18f)
+        g2.paint = GradientPaint(0f, 0f, Color(80, 110, 170), sideGlowW, 0f, Color(80, 110, 170, 0))
+        g2.fill(cliffPath)
+        g2.paint = GradientPaint(w.toFloat(), 0f, Color(80, 110, 170), w - sideGlowW, 0f, Color(80, 110, 170, 0))
+        g2.fill(cliffPath)
+        g2.composite = old
+
+        // Rim-light stroke along the top edge — mimics moonlight catching the ridge
+        val rimStroke = BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+        val rimPath = GeneralPath()
+        rimPath.moveTo(0f, pts[0].second * h)
+        for (p in pts) rimPath.lineTo(p.first * w, p.second * h)
+
+        g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.45f)
+        g2.color = Color(140, 170, 220)
+        g2.stroke = rimStroke
+        g2.draw(rimPath)
+
+        // Very faint haze just above the cliff edge — beds it into the scene
+        val hazeH = (h * 0.035f).toInt().coerceAtLeast(6)
+        val hazeY = (h * 0.665f).toInt()
+        g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.18f)
+        g2.paint = GradientPaint(
+            0f, hazeY.toFloat(),              Color(10, 15, 40, 0),
+            0f, (hazeY + hazeH).toFloat(),    Color(10, 15, 40, 180)
+        )
+        g2.fillRect(0, hazeY, w, hazeH + (h * 0.05f).toInt())
 
         g2.composite = old
     }

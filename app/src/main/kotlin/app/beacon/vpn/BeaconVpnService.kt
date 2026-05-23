@@ -72,7 +72,13 @@ class BeaconVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     override fun onBind(intent: Intent) = super.onBind(intent)
 
     override fun onDestroy() {
-        scope.launch { disconnect() }
+        // Clean up resources synchronously before cancelling the scope so
+        // the coroutines launched in onStartCommand always get a chance to finish.
+        runCatching { commandServer?.closeService() }
+        runCatching { commandServer?.close() }
+        commandServer = null
+        runCatching { tunDescriptor?.close() }
+        tunDescriptor = null
         scope.cancel()
         super.onDestroy()
     }

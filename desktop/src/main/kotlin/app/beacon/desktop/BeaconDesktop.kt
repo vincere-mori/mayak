@@ -2,6 +2,7 @@ package app.beacon.desktop
 
 import app.beacon.core.model.DnsMode
 import app.beacon.core.model.ProxyProfile
+import app.beacon.core.net.LatencyProbe
 import app.beacon.core.parser.ProfileInputParser
 import app.beacon.core.singbox.InboundMode
 import app.beacon.core.singbox.SingBoxConfigBuilder
@@ -80,8 +81,8 @@ fun main() {
     UIManager.put("TitlePane.menuBarEmbedded", true)
     UIManager.put("RootPane.background", Color(15, 21, 53))
 
-    UIManager.put("Component.arc", 10)
-    UIManager.put("Button.arc", 12)
+    UIManager.put("Component.arc", 14)
+    UIManager.put("Button.arc", 18)
     UIManager.put("ScrollBar.width", 8)
     UIManager.put("ToolTip.background", Color(28, 38, 80))
     UIManager.put("ToolTip.foreground", Color(220, 230, 255))
@@ -122,15 +123,24 @@ class BeaconDesktop(
     private val pingLabel = JLabel("ping")
     private val downLabel = JLabel("↓ down")
     private val upLabel = JLabel("↑ up")
+    private val pingTestBtn = T.ghostButton("Тест").apply {
+        toolTipText = "Проверить задержку до активного сервера"
+        preferredSize = Dimension(78, 26)
+        maximumSize = Dimension(78, 26)
+        minimumSize = Dimension(78, 26)
+        font = font.deriveFont(Font.BOLD, 11f)
+        addActionListener { runPing(showProgress = true) }
+    }
 
     private val proxyModeBtn = JToggleButton("Proxy")
     private val tunModeBtn = JToggleButton("TUN")
-    private val warpModeBtn = JToggleButton("WARP")
+    private val warpModeBtn = PillToggleButton("WARP")
 
-    private val pingProbe = PingProbe()
+    private val latencyProbe = LatencyProbe()
     private var trafficMonitor: TrafficMonitor? = null
     private val pingTimer = Timer(5000) { runPing() }
     private val statsAnimTimer = Timer(33) { /* repaint stats */ }
+    private var pinging = false
 
     fun show() {
         frame = JFrame("Beacon").apply {
@@ -178,6 +188,10 @@ class BeaconDesktop(
         val right = JPanel().apply {
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.X_AXIS)
+            add(T.iconButton("🌐", "Подписки").apply {
+                addActionListener { openSubscriptions() }
+            })
+            add(Box.createHorizontalStrut(2))
             add(T.iconButton("🔑", "Управление ключами").apply {
                 addActionListener { openKeys() }
             })
@@ -237,18 +251,20 @@ class BeaconDesktop(
         isOpaque = false
         layout = GridLayout(1, 3, 14, 0)
         alignmentX = Component.CENTER_ALIGNMENT
-        maximumSize = Dimension(720, 96)
-        preferredSize = Dimension(720, 96)
+        maximumSize = Dimension(720, 108)
+        preferredSize = Dimension(720, 108)
 
         add(statCard(pingValue, pingLabel, T.ACCENT_LIGHT,
-            "<html>Задержка до сервера в миллисекундах.<br>Чем меньше — тем отзывчивее соединение.</html>"))
+            "<html>Задержка до сервера в миллисекундах.<br>Чем меньше — тем отзывчивее соединение.</html>",
+            pingTestBtn))
         add(statCard(downValue, downLabel, T.SUCCESS,
             "<html>Скорость загрузки прямо сейчас (входящий трафик).<br>Обновляется раз в секунду.</html>"))
         add(statCard(upValue, upLabel, T.WARN,
             "<html>Скорость отдачи прямо сейчас (исходящий трафик).<br>Обновляется раз в секунду.</html>"))
     }
 
-    private fun statCard(value: JLabel, label: JLabel, accent: Color, tip: String): JPanel = T.card(12f).apply {
+    private fun statCard(value: JLabel, label: JLabel, accent: Color, tip: String, action: JButton? = null): JPanel =
+        T.card(14f).apply {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
         toolTipText = tip
         value.apply {
@@ -267,6 +283,10 @@ class BeaconDesktop(
         add(value.fullWidth())
         add(Box.createVerticalStrut(2))
         add(label.fullWidth())
+        action?.let {
+            add(Box.createVerticalStrut(7))
+            add(it.also { btn -> btn.alignmentX = Component.CENTER_ALIGNMENT })
+        }
         add(Box.createVerticalGlue())
     }
 
@@ -324,6 +344,7 @@ class BeaconDesktop(
                 })
             }
             var hover = false
+            var pressed = false
             override fun paintComponent(g: Graphics) {
                 val g2 = g as Graphics2D
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
@@ -333,13 +354,24 @@ class BeaconDesktop(
                     else -> T.ACCENT
                 }
                 val color = if (hover) base.brighter() else base
-                g2.color = color
-                g2.fillRoundRect(0, 0, width, height, 14, 14)
-                val glowColor = Color(color.red, color.green, color.blue, 70)
+                val y = if (pressed) 2 else 0
+                g2.color = Color(0, 0, 0, 52)
+                g2.fillRoundRect(2, 5, width - 4, height - 5, 22, 22)
+                g2.paint = GradientPaint(0f, y.toFloat(), color, 0f, height.toFloat(), base.darker())
+                g2.fillRoundRect(0, y, width, height - y - 1, 22, 22)
+                val glowColor = Color(color.red, color.green, color.blue, 90)
                 g2.color = glowColor
                 g2.stroke = BasicStroke(2f)
-                g2.drawRoundRect(1, 1, width - 2, height - 2, 14, 14)
+                g2.drawRoundRect(1, y + 1, width - 3, height - y - 3, 22, 22)
                 super.paintComponent(g)
+            }
+            override fun processMouseEvent(e: MouseEvent) {
+                when (e.id) {
+                    MouseEvent.MOUSE_PRESSED -> pressed = true
+                    MouseEvent.MOUSE_RELEASED, MouseEvent.MOUSE_EXITED -> pressed = false
+                }
+                super.processMouseEvent(e)
+                repaint()
             }
         }
     }
@@ -353,13 +385,14 @@ class BeaconDesktop(
             background = T.CARD_SOLID
             border = BorderFactory.createLineBorder(T.BORDER, 1)
         }
-        if (state.profiles.isEmpty()) {
+        val all = state.allProfiles
+        if (all.isEmpty()) {
             menu.add(JMenuItem("Добавить ключ…").apply {
                 foreground = T.TEXT; background = T.CARD_SOLID
                 addActionListener { openKeys() }
             })
         } else {
-            state.profiles.forEach { p ->
+            all.forEach { p ->
                 val active = p.id == state.activeProfileId
                 val item = JMenuItem("${if (active) "✓ " else "   "}${p.name}   ${p.host}:${p.port}")
                 item.foreground = if (active) T.ACCENT_LIGHT else T.TEXT
@@ -375,6 +408,10 @@ class BeaconDesktop(
                 foreground = T.MUTED; background = T.CARD_SOLID
                 addActionListener { openKeys() }
             })
+            menu.add(JMenuItem("Подписки…").apply {
+                foreground = T.MUTED; background = T.CARD_SOLID
+                addActionListener { openSubscriptions() }
+            })
         }
         menu.show(anchor, 0, anchor.height + 4)
     }
@@ -386,11 +423,19 @@ class BeaconDesktop(
         }.isVisible = true
     }
 
+    private fun openSubscriptions() {
+        SubscriptionDialog(frame, state.subscriptions, state.activeProfileId) { subscriptions, activeId ->
+            state = state.copy(subscriptions = subscriptions, activeProfileId = activeId)
+            persist(); refresh()
+        }.isVisible = true
+    }
+
     private fun styleWarpButton() {
-        warpModeBtn.isOpaque = true
-        warpModeBtn.isContentAreaFilled = true
+        warpModeBtn.isOpaque = false
+        warpModeBtn.isContentAreaFilled = false
+        warpModeBtn.isBorderPainted = false
         warpModeBtn.isFocusPainted = false
-        warpModeBtn.border = BorderFactory.createLineBorder(T.BORDER, 1)
+        warpModeBtn.border = EmptyBorder(0, 14, 0, 14)
         warpModeBtn.preferredSize = Dimension(112, 42)
         warpModeBtn.maximumSize = Dimension(112, 42)
         warpModeBtn.minimumSize = Dimension(112, 42)
@@ -659,11 +704,20 @@ class BeaconDesktop(
         pingValue.text = "—"
     }
 
-    private fun runPing() {
+    private fun runPing(showProgress: Boolean = false) {
+        if (pinging) return
         val profile = state.activeProfile ?: return
+        pinging = true
+        if (showProgress) {
+            pingValue.text = "..."
+            pingValue.foreground = T.ACCENT_LIGHT
+            pingTestBtn.isEnabled = false
+        }
         Thread {
-            val ms = pingProbe.tcpLatencyMs(profile.host, profile.port)
+            val ms = latencyProbe.tcpLatencyMs(profile.host, profile.port)
             SwingUtilities.invokeLater {
+                pinging = false
+                pingTestBtn.isEnabled = state.activeProfile != null
                 pingValue.text = ms?.let { "$it ms" } ?: "—"
                 pingValue.foreground = when {
                     ms == null -> T.MUTED
@@ -722,6 +776,7 @@ class BeaconDesktop(
             warpModeBtn.text = if (hasUsableWarpCredentials()) "WARP" else "WARP +"
             warpModeBtn.background = if (warpModeBtn.isSelected) T.ACCENT else T.BG_INPUT
             warpModeBtn.foreground = if (warpModeBtn.isSelected) Color.WHITE else T.MUTED
+            pingTestBtn.isEnabled = active != null && !pinging
             warpModeBtn.repaint()
         } finally {
             refreshing = false
@@ -774,9 +829,32 @@ class BeaconDesktop(
             val g2 = g as Graphics2D
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g2.color = T.BG_INPUT
-            g2.fillRoundRect(0, 0, width, height, 16, 16)
+            g2.fillRoundRect(0, 0, width, height, 18, 18)
             g2.color = T.BORDER
-            g2.drawRoundRect(0, 0, width - 1, height - 1, 16, 16)
+            g2.drawRoundRect(0, 0, width - 1, height - 1, 18, 18)
+        }
+    }
+
+    private class PillToggleButton(text: String) : JToggleButton(text) {
+        override fun paintComponent(g: Graphics) {
+            val g2 = g as Graphics2D
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val active = isSelected
+            val hover = model.isRollover
+            val top = when {
+                active -> T.ACCENT_HOVER
+                hover -> T.BG_INPUT_HOVER
+                else -> T.BG_INPUT
+            }
+            val bottom = when {
+                active -> T.ACCENT
+                hover -> T.BG_INPUT
+                else -> T.BG_INPUT.darker()
+            }
+            T.softFill(g2, width, height, top, bottom, 18)
+            g2.color = if (active) T.ACCENT_LIGHT else T.BORDER_SOFT
+            g2.drawRoundRect(0, 0, width - 1, height - 1, 18, 18)
+            super.paintComponent(g)
         }
     }
 
@@ -813,14 +891,18 @@ class BeaconDesktop(
             val g2 = g as Graphics2D
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
             g2.color = T.BG_INPUT
-            g2.fillRoundRect(0, 0, width, height, 12, 12)
+            g2.fillRoundRect(0, 0, width, height, 18, 18)
             // selected pill
             val w2 = width / 2
             val selX = if (a.isSelected) 0 else w2
-            g2.color = T.ACCENT
-            g2.fillRoundRect(selX + 2, 2, w2 - 4, height - 4, 10, 10)
+            val pill = g2.create(selX + 2, 2, w2 - 4, height - 4) as Graphics2D
+            try {
+                T.softFill(pill, w2 - 4, height - 4, T.ACCENT_HOVER, T.ACCENT, 16)
+            } finally {
+                pill.dispose()
+            }
             g2.color = T.BORDER
-            g2.drawRoundRect(0, 0, width - 1, height - 1, 12, 12)
+            g2.drawRoundRect(0, 0, width - 1, height - 1, 18, 18)
         }
     }
 

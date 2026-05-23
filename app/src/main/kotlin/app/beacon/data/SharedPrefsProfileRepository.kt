@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import app.beacon.core.model.ProxyProfile
+import app.beacon.core.model.Subscription
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,10 +26,13 @@ class SharedPrefsProfileRepository(context: Context) : ProfileRepository {
     }
 
     private val profiles = MutableStateFlow(loadProfiles())
+    private val subscriptions = MutableStateFlow(loadSubscriptions())
     private val activeProfileId = MutableStateFlow(securePrefs.getString(KEY_ACTIVE_PROFILE))
     private val settings = MutableStateFlow(loadSettings())
 
     override fun observeProfiles(): Flow<List<ProxyProfile>> = profiles.asStateFlow()
+
+    override fun observeSubscriptions(): Flow<List<Subscription>> = subscriptions.asStateFlow()
 
     override fun observeActiveProfileId(): Flow<String?> = activeProfileId.asStateFlow()
 
@@ -57,6 +61,27 @@ class SharedPrefsProfileRepository(context: Context) : ProfileRepository {
         }
     }
 
+    override suspend fun saveSubscription(subscription: Subscription) {
+        val updated = subscriptions.value
+            .filterNot { it.id == subscription.id }
+            .plus(subscription)
+        writeSubscriptions(updated)
+    }
+
+    override suspend fun deleteSubscription(subscriptionId: String) {
+        val removed = subscriptions.value.firstOrNull { it.id == subscriptionId }
+        val updated = subscriptions.value.filterNot { it.id == subscriptionId }
+        writeSubscriptions(updated)
+
+        if (removed?.profiles?.any { it.id == activeProfileId.value } == true) {
+            val nextId = profiles.value.firstOrNull()?.id
+                ?: updated.flatMap { it.profiles }.firstOrNull()?.id
+            if (nextId == null) securePrefs.remove(KEY_ACTIVE_PROFILE)
+            else securePrefs.putString(KEY_ACTIVE_PROFILE, nextId)
+            activeProfileId.value = nextId
+        }
+    }
+
     override suspend fun setActiveProfile(profileId: String) {
         securePrefs.putString(KEY_ACTIVE_PROFILE, profileId)
         activeProfileId.value = profileId
@@ -69,7 +94,8 @@ class SharedPrefsProfileRepository(context: Context) : ProfileRepository {
 
     override suspend fun currentActiveProfile(): ProxyProfile? {
         val activeId = activeProfileId.value
-        return profiles.value.firstOrNull { it.id == activeId } ?: profiles.value.firstOrNull()
+        val all = profiles.value + subscriptions.value.flatMap { it.profiles }
+        return all.firstOrNull { it.id == activeId } ?: all.firstOrNull()
     }
 
     override suspend fun currentSettings(): BeaconSettings = settings.value
@@ -77,6 +103,16 @@ class SharedPrefsProfileRepository(context: Context) : ProfileRepository {
     private fun loadProfiles(): List<ProxyProfile> {
         val raw = securePrefs.getString(KEY_PROFILES) ?: return emptyList()
         return runCatching { json.decodeFromString<List<ProxyProfile>>(raw) }.getOrDefault(emptyList())
+    }
+
+    private fun loadSubscriptions(): List<Subscription> {
+        val raw = securePrefs.getString(KEY_SUBSCRIPTIONS) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<Subscription>>(raw) }.getOrDefault(emptyList())
+    }
+
+    private fun writeSubscriptions(value: List<Subscription>) {
+        securePrefs.putString(KEY_SUBSCRIPTIONS, json.encodeToString(value))
+        subscriptions.value = value
     }
 
     private fun loadSettings(): BeaconSettings {
@@ -91,6 +127,7 @@ class SharedPrefsProfileRepository(context: Context) : ProfileRepository {
 
     private companion object {
         const val KEY_PROFILES = "profiles"
+        const val KEY_SUBSCRIPTIONS = "subscriptions"
         const val KEY_ACTIVE_PROFILE = "active_profile"
         const val KEY_SETTINGS = "settings"
     }

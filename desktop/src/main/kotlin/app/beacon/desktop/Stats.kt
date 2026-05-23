@@ -3,24 +3,11 @@ package app.beacon.desktop
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
-import java.net.InetSocketAddress
-import java.net.Socket
 import java.net.URL
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 data class TrafficSample(val up: Long, val down: Long)
-
-class PingProbe {
-    fun tcpLatencyMs(host: String, port: Int, timeoutMs: Int = 2000): Long? = runCatching {
-        val socket = Socket()
-        val start = System.nanoTime()
-        socket.connect(InetSocketAddress(host, port), timeoutMs)
-        val ms = (System.nanoTime() - start) / 1_000_000
-        socket.close()
-        ms
-    }.getOrNull()
-}
 
 /**
  * Streams traffic stats from sing-box clash API (/traffic SSE-ish endpoint).
@@ -34,7 +21,7 @@ class TrafficMonitor(private val controllerPort: Int) {
     private val running = AtomicBoolean(false)
     private val lastUp = AtomicLong(0)
     private val lastDown = AtomicLong(0)
-    private var thread: Thread? = null
+    @Volatile private var thread: Thread? = null
 
     val sample: TrafficSample
         get() = TrafficSample(lastUp.get(), lastDown.get())
