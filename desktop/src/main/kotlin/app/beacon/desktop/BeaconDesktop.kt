@@ -674,7 +674,7 @@ class BeaconDesktop(
         )
 
         Thread {
-            val result = singBox.start(config)
+            val result = singBox.start(config, tunMode = state.inboundMode == InboundMode.Tun)
             val error = if (result.isSuccess) {
                 if (state.inboundMode == InboundMode.Mixed)
                     runCatching { windowsProxy.enable(PROXY_PORT) }

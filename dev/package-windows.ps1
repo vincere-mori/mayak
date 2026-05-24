@@ -64,7 +64,7 @@ function Ensure-Wix {
 }
 
 if (!$SkipBuild) {
-    & (Join-Path $Repo "gradlew.bat") ":core:test" ":desktop:test" ":desktop:installDist"
+    & (Join-Path $Repo "gradlew.bat") "--project-dir" $Repo ":core:test" ":desktop:test" ":desktop:installDist"
 }
 
 Ensure-Wix
@@ -107,4 +107,21 @@ if ($null -eq $Installer) {
 
 $Target = Join-Path $ReleaseDir "Beacon-Windows-v$CleanVersion.exe"
 Copy-Item $Installer.FullName $Target -Force
+
+# Рядом с инсталлером кладём скрипт тихого апгрейда:
+# пользователь запускает update.ps1 — никаких кликов, только прогресс-бар.
+# Или администратор/CI делает тихую установку через /install /quiet.
+$UpdateScript = @"
+# Тихий апгрейд Beacon: запускает инсталлер без визарда.
+# Двойной клик на installer.exe показывает визард — этот скрипт его пропускает.
+param([switch]`$Quiet)
+`$exe = Join-Path `$PSScriptRoot "Beacon-Windows-v$CleanVersion.exe"
+`$ui  = if (`$Quiet) { '/quiet' } else { '/passive' }
+`$proc = Start-Process -FilePath `$exe ``
+    -ArgumentList '/install', `$ui, '/norestart' ``
+    -Wait -PassThru
+exit `$proc.ExitCode
+"@
+$UpdateScript | Set-Content (Join-Path $ReleaseDir "update.ps1") -Encoding utf8
+
 Write-Output $Target

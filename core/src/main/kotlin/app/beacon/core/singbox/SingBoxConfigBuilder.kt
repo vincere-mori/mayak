@@ -147,6 +147,12 @@ class SingBoxConfigBuilder(
             }
             vless.flow?.let { put("flow", it) }
             put("network", "tcp")
+            // xtls-rprx-vision на сервере (Xray) не пропускает UDP. Если flow
+            // не задан — пакуем UDP в TCP через xudp, чтобы Discord/QUIC/игры
+            // ходили через основной туннель без ошибок "UDP is not supported".
+            if (vless.flow == null) {
+                put("packet_encoding", "xudp")
+            }
             put("tls", buildJsonObject {
                 put("enabled", true)
                 put("server_name", vless.serverName)
@@ -232,6 +238,14 @@ class SingBoxConfigBuilder(
                         put("domain_suffix", buildJsonArray {
                             warpDomains().forEach { add(JsonPrimitive(it)) }
                         })
+                        put("action", "route")
+                        put("outbound", "warp")
+                    })
+                    // Если основной vless имеет flow=xtls-rprx-vision, UDP через
+                    // proxy не пройдёт. Сваливаем весь оставшийся UDP в WARP —
+                    // это спасает QUIC, WebRTC и игровой UDP без серверных правок.
+                    add(buildJsonObject {
+                        put("network", "udp")
                         put("action", "route")
                         put("outbound", "warp")
                     })
