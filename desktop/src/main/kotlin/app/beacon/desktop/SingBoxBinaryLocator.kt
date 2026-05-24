@@ -8,12 +8,14 @@ class SingBoxBinaryLocator(
     private val launchDir: Path = Path.of("").toAbsolutePath(),
     private val appDir: Path = appBinaryDir()
 ) {
+    private val binaryName = if (Platform.isWindows) "sing-box.exe" else "sing-box"
+
     fun locate(): Path? {
         return listOf(
-            launchDir.resolve("sing-box.exe"),
-            appDir.resolve("sing-box.exe"),
-            appDir.parent?.resolve("bin")?.resolve("sing-box.exe"),
-            appDir.parent?.resolve("sing-box.exe")
+            launchDir.resolve(binaryName),
+            appDir.resolve(binaryName),
+            appDir.parent?.resolve("bin")?.resolve(binaryName),
+            appDir.parent?.resolve(binaryName)
         ).filterNotNull().firstOrNull { it.exists() }
     }
 

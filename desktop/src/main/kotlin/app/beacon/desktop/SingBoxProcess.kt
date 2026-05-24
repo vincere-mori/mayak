@@ -14,9 +14,8 @@ class SingBoxProcess(
     private val readyProbeHost: String = "127.0.0.1",
     private val readyProbePort: Int = 9095,
     private val readyTimeoutMs: Long = 4_000L,
-    // TUN-режим инициализирует виртуальный сетевой адаптер через WinTun, что под
-    // антивирусом / на медленном диске легко уходит за 10+ секунд. Логи показывают
-    // "open interface take too much time to finish" с таймаутом 15с в sing-box.
+    // TUN-режим инициализирует виртуальный сетевой адаптер через WinTun/tun(4), что под
+    // антивирусом / на медленном диске легко уходит за 10+ секунд.
     private val tunReadyTimeoutMs: Long = 25_000L,
     private val gracefulStopMs: Long = 6_000L
 ) {
@@ -33,21 +32,16 @@ class SingBoxProcess(
         if (running) stop()
 
         val binary = binaryLocator.locate()
-            ?: return Result.failure(IllegalStateException("sing-box.exe не найден"))
+            ?: return Result.failure(IllegalStateException("sing-box не найден"))
 
-        runCatching {
-            val escapedBinary = binary.toString().replace("'", "''")
-            ProcessBuilder("powershell", "-NoProfile", "-Command",
-                "Get-Process -Name 'sing-box' -ErrorAction SilentlyContinue | " +
-                "Where-Object { \$_.Path -eq '$escapedBinary' } | " +
-                "Stop-Process -Force"
-            ).start().waitFor(3, TimeUnit.SECONDS)
-        }
+        killStaleSingBox(binary)
 
         configFile.parent?.let { Files.createDirectories(it) }
 
         val timeout = if (tunMode) tunReadyTimeoutMs else readyTimeoutMs
-        val attempts = if (tunMode) 3 else 1
+        // On Linux, the kernel releases the TUN fd on process exit, so stale adapters
+        // are not possible. Only retry on Windows where WinTun can get stuck.
+        val attempts = if (tunMode && Platform.isWindows) 3 else 1
 
         var lastError: Throwable? = null
         repeat(attempts) { attempt ->
@@ -59,8 +53,6 @@ class SingBoxProcess(
                 Thread.sleep(1_200)
             }
 
-            // Перезаписываем конфиг каждый раз — abortLastProcess() его удаляет,
-            // чтобы между запусками не оставалось файлов с ключами на диске.
             configFile.writeText(configJson)
 
             process = ProcessBuilder(binary.toString(), "run", "-c", configFile.toString())
@@ -106,7 +98,7 @@ class SingBoxProcess(
         if (current != null) {
             current.destroy()
             // Sing-box должен снять TUN-адаптер при graceful shutdown; force-kill
-            // оставляет stale tun0, после которого следующий старт падает.
+            // оставляет stale tun0 на Windows, после которого следующий старт падает.
             if (!current.waitFor(gracefulStopMs, TimeUnit.MILLISECONDS)) {
                 current.destroyForcibly()
                 current.waitFor(2, TimeUnit.SECONDS)
@@ -115,7 +107,24 @@ class SingBoxProcess(
         process = null
     }
 
+    private fun killStaleSingBox(binary: Path) {
+        runCatching {
+            if (Platform.isWindows) {
+                val escapedBinary = binary.toString().replace("'", "''")
+                ProcessBuilder("powershell", "-NoProfile", "-Command",
+                    "Get-Process -Name 'sing-box' -ErrorAction SilentlyContinue | " +
+                    "Where-Object { \$_.Path -eq '$escapedBinary' } | " +
+                    "Stop-Process -Force"
+                ).start().waitFor(3, TimeUnit.SECONDS)
+            } else {
+                ProcessBuilder("pkill", "-f", binary.toString())
+                    .start().waitFor(3, TimeUnit.SECONDS)
+            }
+        }
+    }
+
     private fun cycleStaleTunAdapter() {
+        if (!Platform.isWindows) return
         runCatching {
             ProcessBuilder(
                 "powershell", "-NoProfile", "-Command",

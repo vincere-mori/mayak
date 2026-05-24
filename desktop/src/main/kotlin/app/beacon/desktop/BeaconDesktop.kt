@@ -56,7 +56,7 @@ import kotlin.system.exitProcess
 import app.beacon.desktop.BeaconTheme as T
 
 fun main() {
-    refreshShellIconCacheOnce()
+    if (Platform.isWindows) refreshShellIconCacheOnce()
 
     // Enable FlatLaf to draw the window titlebar (instead of Windows DWM)
     // so our brand colours actually apply to the title strip and buttons.
@@ -129,7 +129,7 @@ class BeaconDesktop(
     private val parser: ProfileInputParser = ProfileInputParser(),
     private val configBuilder: SingBoxConfigBuilder = SingBoxConfigBuilder(),
     private val singBox: SingBoxProcess = SingBoxProcess(),
-    private val windowsProxy: WindowsProxy = WindowsProxy()
+    private val systemProxy: SystemProxy = platformProxy()
 ) {
     private var state = store.load()
     private var connected = false
@@ -577,7 +577,7 @@ class BeaconDesktop(
         restoreCard.add(restoreText)
         restoreCard.add(Box.createHorizontalGlue())
         restoreCard.add(T.ghostButton("Вернуть proxy").apply {
-            addActionListener { windowsProxy.restore() }
+            addActionListener { systemProxy.restore() }
             preferredSize = Dimension(150, 36)
             maximumSize = Dimension(150, 36)
         })
@@ -639,13 +639,13 @@ class BeaconDesktop(
         val profile = state.activeProfile ?: run {
             showError("сначала добавь и выбери ключ"); openKeys(); return
         }
-        if (state.inboundMode == InboundMode.Tun && !isWindowsAdmin()) {
+        if (state.inboundMode == InboundMode.Tun && !isElevated()) {
             val res = JOptionPane.showConfirmDialog(
                 frame,
                 "TUN перехватывает весь трафик и требует запуск от администратора.\nПерезапустить Beacon с правами администратора?",
                 "Beacon", JOptionPane.YES_NO_OPTION
             )
-            if (res == JOptionPane.YES_OPTION && relaunchAsAdmin()) { shutdown(); return }
+            if (res == JOptionPane.YES_OPTION && relaunchElevated()) { shutdown(); return }
             showError("Запусти Beacon от администратора или выбери режим Proxy"); return
         }
 
@@ -677,7 +677,7 @@ class BeaconDesktop(
             val result = singBox.start(config, tunMode = state.inboundMode == InboundMode.Tun)
             val error = if (result.isSuccess) {
                 if (state.inboundMode == InboundMode.Mixed)
-                    runCatching { windowsProxy.enable(PROXY_PORT) }
+                    runCatching { systemProxy.enable(PROXY_PORT) }
                         .onFailure { singBox.stop() }.exceptionOrNull()
                 else null
             } else result.exceptionOrNull()
@@ -696,14 +696,14 @@ class BeaconDesktop(
         connecting = false
         stopMonitoring()
         Thread {
-            runCatching { singBox.stop(); windowsProxy.restore() }
+            runCatching { singBox.stop(); systemProxy.restore() }
             SwingUtilities.invokeLater { connected = false; refresh() }
         }.apply { isDaemon = true; start() }
     }
 
     private fun reconnectAfterModeChange() {
         Thread {
-            runCatching { singBox.stop(); windowsProxy.restore() }
+            runCatching { singBox.stop(); systemProxy.restore() }
             SwingUtilities.invokeLater { connected = false; stopMonitoring(); refresh() }
             Thread.sleep(450)
             SwingUtilities.invokeLater { connect() }
@@ -759,7 +759,7 @@ class BeaconDesktop(
 
     private fun shutdown() {
         stopMonitoring()
-        runCatching { singBox.stop(); windowsProxy.restore() }
+        runCatching { singBox.stop(); systemProxy.restore() }
         frame.dispose(); exitProcess(0)
     }
 
@@ -822,19 +822,33 @@ class BeaconDesktop(
         return creds.privateKey.isNotBlank() && creds.localAddressV4.isNotBlank()
     }
 
-    private fun isWindowsAdmin() = runCatching {
-        ProcessBuilder("cmd", "/c", "net session >nul 2>&1").start().waitFor() == 0
+    private fun isElevated() = runCatching {
+        if (Platform.isWindows) {
+            ProcessBuilder("cmd", "/c", "net session >nul 2>&1").start().waitFor() == 0
+        } else {
+            ProcessBuilder("id", "-u").start()
+                .also { it.waitFor(2, java.util.concurrent.TimeUnit.SECONDS) }
+                .inputStream.bufferedReader().readText().trim() == "0"
+        }
     }.getOrDefault(false)
 
-    private fun relaunchAsAdmin(): Boolean {
+    private fun relaunchElevated(): Boolean {
         val command = ProcessHandle.current().info().command().orElse(null) ?: return false
-        val path = Path.of(command)
-        if (!path.fileName.toString().equals("Beacon.exe", ignoreCase = true)) return false
-        val q = "'" + path.toAbsolutePath().toString().replace("'", "''") + "'"
-        return runCatching {
-            ProcessBuilder("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                "-Command", "Start-Process -FilePath $q -Verb RunAs").start(); true
-        }.getOrDefault(false)
+        val args = ProcessHandle.current().info().arguments()
+            .map { it.toList() }.orElse(emptyList())
+        return if (Platform.isWindows) {
+            val path = Path.of(command)
+            if (!path.fileName.toString().equals("Beacon.exe", ignoreCase = true)) return false
+            val q = "'" + path.toAbsolutePath().toString().replace("'", "''") + "'"
+            runCatching {
+                ProcessBuilder("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                    "-Command", "Start-Process -FilePath $q -Verb RunAs").start(); true
+            }.getOrDefault(false)
+        } else {
+            runCatching {
+                ProcessBuilder(listOf("pkexec") + listOf(command) + args).start(); true
+            }.getOrDefault(false)
+        }
     }
 
     private fun JLabel.fullWidth() = apply {

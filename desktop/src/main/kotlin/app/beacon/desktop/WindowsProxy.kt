@@ -2,10 +2,10 @@ package app.beacon.desktop
 
 class WindowsProxy(
     private val commandRunner: (List<String>) -> String = ::runCommand
-) {
+) : SystemProxy {
     private var previous: ProxySnapshot? = null
 
-    fun enable(port: Int) {
+    override fun enable(port: Int) {
         if (previous == null) previous = readSnapshot()
 
         commandRunner(
@@ -28,7 +28,7 @@ class WindowsProxy(
         )
     }
 
-    fun restore() {
+    override fun restore() {
         val snapshot = previous ?: return
 
         commandRunner(

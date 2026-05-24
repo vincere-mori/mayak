@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.3.0
+
+- Linux desktop support: Beacon now runs on Linux (x86_64 / arm64) with the same feature set as Windows.
+- Linux proxy mode uses `gsettings` to configure system proxy (GNOME); other DEs receive no-op on restore.
+- Linux TUN mode requires root or `pkexec` elevation; `relaunchElevated()` uses `pkexec` automatically.
+- App data stored in `$XDG_CONFIG_HOME/beacon` (default `~/.config/beacon`) on Linux.
+- Binary locator resolves `sing-box` (no `.exe`) on Linux.
+- Stale process cleanup uses `pkill` on Linux; WinTun adapter cycling is Windows-only.
+- CI: new `linux` job builds `Beacon-Linux-vX.Y.Z.tar.gz` (jpackage app-image with bundled JRE).
+- Android: fix ViewModel factory to pass application context.
+
 ## v0.2.0
 
 - Поддержка подписок: ссылка подписки разворачивается в список серверов.
