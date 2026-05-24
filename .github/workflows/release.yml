@@ -87,15 +87,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mv release/beacon-android/app-release.apk "release/Beacon-Android-${GITHUB_REF_NAME}.apk"
+          echo "### Какой файл скачивать / Which file to download:" > release_notes.txt
+          echo "" >> release_notes.txt
+          echo "* 📱 **Beacon-Android-${GITHUB_REF_NAME}.apk** — Версия для мобильных устройств на базе **Android** (смартфоны, планшеты)." >> release_notes.txt
+          echo "* 💻 **Beacon-Windows-${GITHUB_REF_NAME}.exe** — Установщик для компьютеров на базе **Windows** (ПК, ноутбуки)." >> release_notes.txt
+          echo "" >> release_notes.txt
+          echo "---" >> release_notes.txt
           gh release create "${GITHUB_REF_NAME}" \
             "release/Beacon-Android-${GITHUB_REF_NAME}.apk" \
             release/beacon-windows/Beacon-Windows-*.exe \
             --repo "${GITHUB_REPOSITORY}" \
             --title "Beacon ${GITHUB_REF_NAME}" \
-            --notes "### Какой файл скачивать / Which file to download:
-
-* 📱 **Beacon-Android-${GITHUB_REF_NAME}.apk** — Версия для мобильных устройств на базе **Android** (смартфоны, планшеты).
-* 💻 **Beacon-Windows-${GITHUB_REF_NAME}.exe** — Установщик для компьютеров на базе **Windows** (ПК, ноутбуки).
-
----" \
+            --notes-file release_notes.txt \
             --generate-notes
