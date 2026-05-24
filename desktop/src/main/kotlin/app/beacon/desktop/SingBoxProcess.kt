@@ -35,6 +35,15 @@ class SingBoxProcess(
         val binary = binaryLocator.locate()
             ?: return Result.failure(IllegalStateException("sing-box.exe не найден"))
 
+        runCatching {
+            val escapedBinary = binary.toString().replace("'", "''")
+            ProcessBuilder("powershell", "-NoProfile", "-Command",
+                "Get-Process -Name 'sing-box' -ErrorAction SilentlyContinue | " +
+                "Where-Object { \$_.Path -eq '$escapedBinary' } | " +
+                "Stop-Process -Force"
+            ).start().waitFor(3, TimeUnit.SECONDS)
+        }
+
         configFile.parent?.let { Files.createDirectories(it) }
 
         val timeout = if (tunMode) tunReadyTimeoutMs else readyTimeoutMs

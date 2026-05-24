@@ -32,13 +32,13 @@ jobs:
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build APK
-        run: ./gradlew test :app:assembleDebug
+        run: ./gradlew test :app:assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: beacon-android
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/release/app-release.apk
 
   windows:
     runs-on: windows-latest
@@ -86,10 +86,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mv release/beacon-android/app-debug.apk "release/Beacon-Android-${GITHUB_REF_NAME}.apk"
+          mv release/beacon-android/app-release.apk "release/Beacon-Android-${GITHUB_REF_NAME}.apk"
           gh release create "${GITHUB_REF_NAME}" \
             "release/Beacon-Android-${GITHUB_REF_NAME}.apk" \
             release/beacon-windows/Beacon-Windows-*.exe \
             --repo "${GITHUB_REPOSITORY}" \
             --title "Beacon ${GITHUB_REF_NAME}" \
+            --notes "### Какой файл скачивать / Which file to download:
+
+* 📱 **Beacon-Android-${GITHUB_REF_NAME}.apk** — Версия для мобильных устройств на базе **Android** (смартфоны, планшеты).
+* 💻 **Beacon-Windows-${GITHUB_REF_NAME}.exe** — Установщик для компьютеров на базе **Windows** (ПК, ноутбуки).
+
+---" \
             --generate-notes
