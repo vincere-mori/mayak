@@ -122,7 +122,7 @@ class SingBoxConfigBuilderTest {
 
         assertEquals("udp", bootstrap["type"]!!.jsonPrimitive.content)
         assertEquals("1.1.1.1", bootstrap["server"]!!.jsonPrimitive.content)
-        assertTrue("detour" !in bootstrap)
+        assertEquals("direct", bootstrap["detour"]!!.jsonPrimitive.content)
         assertEquals("https", remote["type"]!!.jsonPrimitive.content)
         assertEquals("dns.google", remote["server"]!!.jsonPrimitive.content)
         assertEquals("bootstrap", remote["domain_resolver"]!!.jsonPrimitive.content)
