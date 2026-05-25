@@ -58,29 +58,35 @@ import app.beacon.desktop.BeaconTheme as T
 fun main() {
     if (Platform.isWindows) refreshShellIconCacheOnce()
 
-    // Enable FlatLaf to draw the window titlebar (instead of Windows DWM)
-    // so our brand colours actually apply to the title strip and buttons.
-    System.setProperty("flatlaf.useWindowDecorations", "true")
-    System.setProperty("flatlaf.menuBarEmbedded", "true")
-    JFrame.setDefaultLookAndFeelDecorated(true)
-    JDialog.setDefaultLookAndFeelDecorated(true)
+    if (Platform.isWindows) {
+        // Let FlatLaf draw the titlebar instead of Windows DWM so our brand
+        // colours apply to the title strip and buttons. On Linux the native WM
+        // handles decorations — forcing FlatLaf ones there breaks tiling WMs.
+        System.setProperty("flatlaf.useWindowDecorations", "true")
+        System.setProperty("flatlaf.menuBarEmbedded", "true")
+        JFrame.setDefaultLookAndFeelDecorated(true)
+        JDialog.setDefaultLookAndFeelDecorated(true)
+    }
 
     FlatDarkLaf.setup()
 
-    // Brand colours for the FlatLaf-drawn titlebar
-    UIManager.put("TitlePane.background",          Color(15, 21, 53))
-    UIManager.put("TitlePane.inactiveBackground",  Color(10, 15, 38))
-    UIManager.put("TitlePane.foreground",          Color(220, 230, 250))
-    UIManager.put("TitlePane.inactiveForeground",  Color(120, 140, 190))
-    UIManager.put("TitlePane.borderColor",         Color(28, 38, 80))
-    UIManager.put("TitlePane.unifiedBackground",   true)
-    UIManager.put("TitlePane.buttonHoverBackground",   Color(40, 55, 120))
-    UIManager.put("TitlePane.buttonPressedBackground", Color(28, 40, 95))
-    UIManager.put("TitlePane.closeHoverBackground",    Color(185, 38, 48))
-    UIManager.put("TitlePane.closeHoverForeground",    Color.WHITE)
-    UIManager.put("TitlePane.closePressedBackground",  Color(220, 20, 30))
-    UIManager.put("TitlePane.closePressedForeground",  Color.WHITE)
-    UIManager.put("TitlePane.menuBarEmbedded", true)
+    if (Platform.isWindows) {
+        // Brand colours for the FlatLaf-drawn titlebar (Windows only)
+        UIManager.put("TitlePane.background",          Color(15, 21, 53))
+        UIManager.put("TitlePane.inactiveBackground",  Color(10, 15, 38))
+        UIManager.put("TitlePane.foreground",          Color(220, 230, 250))
+        UIManager.put("TitlePane.inactiveForeground",  Color(120, 140, 190))
+        UIManager.put("TitlePane.borderColor",         Color(28, 38, 80))
+        UIManager.put("TitlePane.unifiedBackground",   true)
+        UIManager.put("TitlePane.buttonHoverBackground",   Color(40, 55, 120))
+        UIManager.put("TitlePane.buttonPressedBackground", Color(28, 40, 95))
+        UIManager.put("TitlePane.closeHoverBackground",    Color(185, 38, 48))
+        UIManager.put("TitlePane.closeHoverForeground",    Color.WHITE)
+        UIManager.put("TitlePane.closePressedBackground",  Color(220, 20, 30))
+        UIManager.put("TitlePane.closePressedForeground",  Color.WHITE)
+        UIManager.put("TitlePane.menuBarEmbedded", true)
+    }
+
     UIManager.put("RootPane.background", Color(15, 21, 53))
 
     UIManager.put("Component.arc", 14)
