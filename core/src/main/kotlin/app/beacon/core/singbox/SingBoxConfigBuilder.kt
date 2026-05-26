@@ -62,7 +62,6 @@ class SingBoxConfigBuilder(
                     put("type", "udp")
                     put("tag", "bootstrap")
                     put("server", "1.1.1.1")
-                    put("detour", "direct")
                 })
                 // Remote: DoH through the VLESS proxy — resolves everything else
                 add(buildJsonObject {

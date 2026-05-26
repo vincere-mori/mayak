@@ -2,8 +2,11 @@ package app.beacon.desktop
 
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import java.util.concurrent.TimeUnit
 import kotlin.io.path.writeText
 
@@ -17,7 +20,8 @@ class SingBoxProcess(
     // TUN-режим инициализирует виртуальный сетевой адаптер через WinTun/tun(4), что под
     // антивирусом / на медленном диске легко уходит за 10+ секунд.
     private val tunReadyTimeoutMs: Long = 25_000L,
-    private val gracefulStopMs: Long = 6_000L
+    private val gracefulStopMs: Long = 6_000L,
+    private val maxLogBytes: Long = 4_000_000L
 ) {
     @Volatile private var process: Process? = null
 
@@ -37,6 +41,12 @@ class SingBoxProcess(
         killStaleSingBox(binary)
 
         configFile.parent?.let { Files.createDirectories(it) }
+        rotateLogIfLarge()
+        writeConfig(configJson)
+        checkConfig(binary)?.let { error ->
+            deleteConfig()
+            return Result.failure(error)
+        }
 
         val timeout = if (tunMode) tunReadyTimeoutMs else readyTimeoutMs
         // On Linux, the kernel releases the TUN fd on process exit, so stale adapters
@@ -53,8 +63,6 @@ class SingBoxProcess(
                 Thread.sleep(1_200)
             }
 
-            configFile.writeText(configJson)
-
             process = ProcessBuilder(binary.toString(), "run", "-c", configFile.toString())
                 .redirectErrorStream(true)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()))
@@ -63,7 +71,8 @@ class SingBoxProcess(
             if (waitUntilReady(timeout)) return Result.success(Unit)
 
             lastError = IllegalStateException(
-                "sing-box не запустился (попытка ${attempt + 1}/$attempts). Лог: $logFile"
+                "sing-box не запустился (попытка ${attempt + 1}/$attempts): " +
+                    "${lastSingBoxError() ?: "нет ответа от API"}. Лог: $logFile"
             )
             abortLastProcess()
         }
@@ -86,6 +95,82 @@ class SingBoxProcess(
             }
         }
         return false
+    }
+
+    private fun writeConfig(configJson: String) {
+        configFile.writeText(configJson)
+    }
+
+    private fun rotateLogIfLarge() {
+        runCatching {
+            if (Files.exists(logFile) && Files.size(logFile) > maxLogBytes) {
+                val rotated = logFile.resolveSibling("${logFile.fileName}.old")
+                Files.deleteIfExists(rotated)
+                Files.move(logFile, rotated, StandardCopyOption.REPLACE_EXISTING)
+            }
+        }
+    }
+
+    private fun checkConfig(binary: Path): Throwable? {
+        return runCatching {
+            val checker = ProcessBuilder(binary.toString(), "check", "-c", configFile.toString())
+                .redirectErrorStream(true)
+                .start()
+            val finished = checker.waitFor(8, TimeUnit.SECONDS)
+
+            if (!finished) {
+                checker.destroyForcibly()
+                checker.waitFor(2, TimeUnit.SECONDS)
+                appendLog("sing-box check timed out")
+                return@runCatching IllegalStateException("sing-box check timed out. Лог: $logFile")
+            }
+
+            val output = checker.inputStream.bufferedReader(StandardCharsets.UTF_8).readText()
+            appendLog(output)
+
+            if (checker.exitValue() == 0) {
+                null
+            } else {
+                IllegalStateException("sing-box config invalid: ${lastErrorLine(output)}. Лог: $logFile")
+            }
+        }.getOrElse {
+            IllegalStateException("sing-box check failed: ${it.message ?: it.javaClass.simpleName}. Лог: $logFile")
+        }
+    }
+
+    private fun appendLog(text: String) {
+        if (text.isBlank()) return
+        logFile.parent?.let { Files.createDirectories(it) }
+        val suffix = if (text.endsWith("\n") || text.endsWith("\r")) "" else System.lineSeparator()
+        Files.writeString(
+            logFile,
+            text + suffix,
+            StandardCharsets.UTF_8,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.APPEND
+        )
+    }
+
+    private fun lastSingBoxError(): String? {
+        return runCatching {
+            Files.readString(logFile, StandardCharsets.UTF_8)
+                .lineSequence()
+                .map { stripAnsi(it).trim() }
+                .filter { it.contains("FATAL") || it.contains("ERROR") }
+                .lastOrNull()
+        }.getOrNull()
+    }
+
+    private fun lastErrorLine(output: String): String {
+        return output.lineSequence()
+            .map { stripAnsi(it).trim() }
+            .filter { it.isNotEmpty() }
+            .lastOrNull()
+            ?: "unknown error"
+    }
+
+    private fun stripAnsi(text: String): String {
+        return text.replace(Regex("\u001B\\[[;\\d]*m"), "")
     }
 
     fun stop() {

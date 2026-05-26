@@ -60,6 +60,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           chmod +x dev/ensure-sing-box.sh dev/package-linux.sh
+          dev/ensure-sing-box.sh "$PWD/sing-box"
           ./gradlew :core:test :desktop:test :desktop:installDist
           dev/package-linux.sh "$VERSION"
 
@@ -89,6 +90,7 @@ jobs:
         shell: pwsh
         run: |
           $version = $env:GITHUB_REF_NAME -replace '^v',''
+          .\dev\ensure-sing-box.ps1 | Out-Null
           .\gradlew.bat :core:test :desktop:test :desktop:installDist
           .\dev\package-windows.ps1 -Version $version -SkipBuild
 

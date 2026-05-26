@@ -37,6 +37,28 @@ jobs:
           name: beacon-android-debug
           path: app/build/outputs/apk/debug/app-debug.apk
 
+  linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Test and build desktop
+        run: |
+          chmod +x dev/ensure-sing-box.sh
+          dev/ensure-sing-box.sh "$PWD/sing-box"
+          ./gradlew :core:test :desktop:test :desktop:installDist
+
   windows:
     runs-on: windows-latest
 
@@ -56,6 +78,7 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: |
+          .\dev\ensure-sing-box.ps1 | Out-Null
           .\gradlew.bat :core:test :desktop:test :desktop:installDist
           .\dev\package-windows.ps1 -Version "0.2.0" -SkipBuild
 

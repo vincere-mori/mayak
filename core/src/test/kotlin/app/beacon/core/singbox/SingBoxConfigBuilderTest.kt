@@ -9,6 +9,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SingBoxConfigBuilderTest {
@@ -122,7 +123,7 @@ class SingBoxConfigBuilderTest {
 
         assertEquals("udp", bootstrap["type"]!!.jsonPrimitive.content)
         assertEquals("1.1.1.1", bootstrap["server"]!!.jsonPrimitive.content)
-        assertEquals("direct", bootstrap["detour"]!!.jsonPrimitive.content)
+        assertNull(bootstrap["detour"])
         assertEquals("https", remote["type"]!!.jsonPrimitive.content)
         assertEquals("dns.google", remote["server"]!!.jsonPrimitive.content)
         assertEquals("bootstrap", remote["domain_resolver"]!!.jsonPrimitive.content)
