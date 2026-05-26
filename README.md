@@ -17,9 +17,9 @@
 
 | OS | Download |
 | --- | --- |
-| Windows | [Download .exe](https://github.com/vincere-mori/beacon/releases/download/v0.3.0/Beacon-Windows-v0.3.0.exe) |
-| Android | [Download APK](https://github.com/vincere-mori/beacon/releases/download/v0.3.0/Beacon-Android-v0.3.0.apk) |
-| Linux | [Download .tar.gz](https://github.com/vincere-mori/beacon/releases/download/v0.3.0/Beacon-Linux-v0.3.0.tar.gz) |
+| Windows | [Latest release](https://github.com/vincere-mori/beacon/releases/latest) |
+| Android | [Latest release](https://github.com/vincere-mori/beacon/releases/latest) |
+| Linux | [Latest release](https://github.com/vincere-mori/beacon/releases/latest) |
 
 <p align="center">
   <img src=".assets/screenshot-off.png" width="47%" alt="Beacon отключен">
@@ -66,7 +66,7 @@ dev\run-desktop-dev.bat
 Windows installer:
 
 ```bat
-dev\build-windows.bat 0.3.0
+dev\build-windows.bat 0.3.1
 ```
 
 Android APK:
@@ -78,7 +78,7 @@ Android APK:
 Linux package:
 
 ```bash
-dev/package-linux.sh 0.3.0
+dev/package-linux.sh 0.3.1
 ```
 
 ## Стек
