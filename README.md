@@ -1,74 +1,57 @@
-# Beacon
+<p align="center">
+  <img src="desktop/src/main/resources/icon.png" width="92" alt="Beacon logo">
+</p>
 
-Клиент для VLESS Reality, без лишних настроек. Работает на Windows и Android.
+<h1 align="center">Beacon</h1>
 
 <p align="center">
-  <img src=".assets/screenshot-off.png" width="480" alt="Beacon — отключено"/>
-  &nbsp;&nbsp;
-  <img src=".assets/screenshot-on.png" width="480" alt="Beacon — подключено"/>
+  <b>Минималистичный VLESS Reality клиент для Windows, Linux и Android.</b><br>
+  Свой сервер, локальные ключи, без аккаунтов, облака и телеметрии.
 </p>
 
 <p align="center">
-  <img src=".assets/screenshot-keys.png" width="300" alt="Управление ключами"/>
-  &nbsp;
-  <img src=".assets/screenshot-settings.png" width="300" alt="Настройки"/>
-  &nbsp;
-  <img src=".assets/screenshot-subscriptions.png" width="300" alt="Подписки"/>
+  <a href="https://github.com/vincere-mori/beacon/releases/latest">
+    <img src="https://img.shields.io/badge/Download-Beacon-1f8f5f?style=for-the-badge&logo=github&logoColor=white" alt="Download Beacon">
+  </a>
 </p>
 
-Есть свой сервер и ключ от него - Beacon подключит. Никаких аккаунтов, облаков и телеметрии.
+| OS | Download |
+| --- | --- |
+| Windows | [Download .exe](https://github.com/vincere-mori/beacon/releases/download/v0.3.0/Beacon-Windows-v0.3.0.exe) |
+| Android | [Download APK](https://github.com/vincere-mori/beacon/releases/download/v0.3.0/Beacon-Android-v0.3.0.apk) |
+| Linux | [Download .tar.gz](https://github.com/vincere-mori/beacon/releases/download/v0.3.0/Beacon-Linux-v0.3.0.tar.gz) |
 
----
+<p align="center">
+  <img src=".assets/screenshot-off.png" width="47%" alt="Beacon отключен">
+  <img src=".assets/screenshot-on.png" width="47%" alt="Beacon подключен">
+</p>
 
-## Что внутри
+## Что это
 
-**Windows** - нативное приложение с анимированным интерфейсом. Два режима:
+Beacon подключает ваш VLESS Reality сервер без сложной настройки. Вставьте `vless://` ключ или ссылку подписки, выберите сервер и включите подключение.
 
-- `Proxy` - туннель только для браузеров и приложений с поддержкой системного прокси. Права администратора не нужны.
-- `TUN` - весь трафик идёт через сервер, включая игры и мессенджеры. Нужен запуск от администратора.
+## Возможности
 
-Кнопка `WARP` рядом с режимами - отдельный маршрут для Google и Gemini через Cloudflare WireGuard.
-
-**Android** - использует системный VpnService. Работает в фоне, ключи хранятся в Android Keystore.
-
----
+- `Proxy` - системный прокси для браузеров и приложений, которые его поддерживают. Права администратора не нужны.
+- `TUN` - весь трафик системы через сервер, включая игры и мессенджеры. На desktop нужен запуск с правами администратора или root.
+- `WARP` - отдельный маршрут для Google и Gemini через Cloudflare WireGuard.
+- Подписки - импорт списка серверов, проверка задержки и выбор нужного профиля.
+- Локальное хранение ключей: DPAPI на Windows, Android Keystore на Android, файл профиля в пользовательском конфиге на Linux.
 
 ## Как начать
 
-### Нужен свой сервер
+1. Скачайте сборку для своей платформы из таблицы выше.
+2. Подготовьте свой VLESS Reality сервер на Xray или sing-box.
+3. Откройте Beacon и добавьте `vless://` ключ или ссылку подписки.
+4. Выберите режим `Proxy` или `TUN` и нажмите подключение.
 
-Beacon - клиент, не сервис. Сервер нужно поднять самому: VPS + Xray или sing-box с VLESS Reality. Хороший старт - [официальная документация Xray](https://xtls.github.io) или любой гайд по VLESS Reality selfhosted.
+Beacon не продает VPN-доступ и не выдает серверы. Нужен свой сервер или ключ от него.
 
-### Скачать
+## Примечания
 
-Актуальные сборки в [Releases](https://github.com/vincere-mori/beacon/releases).
-
-| Платформа | Файл |
-|-----------|------|
-| Windows | `Beacon-Windows-v0.2.0.exe` |
-| Android | `Beacon-Android-v0.2.0.apk` |
-
-### Подключение
-
-1. Скопируй ключ `vless://...` из конфига своего сервера.
-2. Открой Beacon -> Управление ключами -> вставь ключ.
-3. Выбери режим и нажми Подключить.
-
-В TUN-режиме приложение само попросит права администратора.
-
----
-
-## Безопасность
-
-Ключи хранятся только локально:
-- Windows: через DPAPI текущего пользователя.
-- Android: через AES-GCM ключ из Android Keystore.
-
-`sing-box.exe` в installer - фиксированная версия, проверяется по SHA-256 при сборке. Произвольный JSON не импортируется, только vless:// ссылки.
-
-Windows installer не подписан сертификатом, SmartScreen при установке может предупредить - это нормально.
-
----
+- Windows installer не подписан сертификатом, поэтому SmartScreen может показать предупреждение.
+- В Linux `Proxy` режим настраивает системный прокси через `gsettings`, лучше всего работает в GNOME.
+- Произвольный JSON не импортируется, поддерживаются `vless://` ключи и подписки с такими ключами.
 
 ## Сборка
 
@@ -80,10 +63,10 @@ Windows installer не подписан сертификатом, SmartScreen п
 dev\run-desktop-dev.bat
 ```
 
-Сборка Windows installer:
+Windows installer:
 
 ```bat
-dev\build-windows.bat 0.2.0
+dev\build-windows.bat 0.3.0
 ```
 
 Android APK:
@@ -92,22 +75,15 @@ Android APK:
 .\gradlew.bat assembleDebug
 ```
 
----
+Linux package:
 
-## Структура
-
+```bash
+dev/package-linux.sh 0.3.0
 ```
-core       парсинг VLESS-ключей, генерация sing-box config
-app        Android: UI + VpnService
-desktop    Windows: UI + sing-box, системный прокси
-dev        сборка installer, иконки
-```
-
----
 
 ## Стек
 
-- Kotlin (JVM + Android)
-- Jetpack Compose - Android UI
-- Swing + FlatLaf - Windows UI
-- [sing-box](https://github.com/SagerNet/sing-box) - ядро туннеля
+- Kotlin JVM + Android
+- Jetpack Compose
+- Swing + FlatLaf
+- [sing-box](https://github.com/SagerNet/sing-box)
