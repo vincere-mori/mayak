@@ -373,8 +373,6 @@ class BeaconDesktop(
         isOpaque = false
         border = EmptyBorder(8, 18, 4, 14)
 
-        add(modeControls(), BorderLayout.WEST)
-
         val right = JPanel().apply {
             isOpaque = false
             layout = BoxLayout(this, BoxLayout.X_AXIS)
@@ -401,7 +399,9 @@ class BeaconDesktop(
         add(statusRow())
         add(Box.createVerticalStrut(10))
         add(mainBtn.also { it.alignmentX = Component.CENTER_ALIGNMENT })
-        add(Box.createVerticalStrut(14))
+        add(Box.createVerticalStrut(12))
+        add(modeControls())
+        add(Box.createVerticalStrut(16))
         add(statsRow())
         add(Box.createVerticalGlue())
     }
@@ -484,6 +484,7 @@ class BeaconDesktop(
     private fun modeControls(): JPanel = JPanel().apply {
         isOpaque = false
         layout = BoxLayout(this, BoxLayout.X_AXIS)
+        alignmentX = Component.CENTER_ALIGNMENT
 
         val seg = ModeSegment(proxyModeBtn, tunModeBtn) { mode ->
             if (refreshing) return@ModeSegment

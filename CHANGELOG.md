@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.0
+
+- Desktop: moved Proxy/TUN/WARP controls to the center stack under the main Connect button.
+
 ## v0.3.4
 
 - Desktop: restored the previous lighthouse shape and wave animation.
