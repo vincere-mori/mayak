@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.4
+
+- Desktop: restored the previous lighthouse shape and wave animation.
+- Desktop: fixed Proxy/TUN/WARP controls, key picker popup, stats test button and already-running dialog.
+- Desktop: tray notice now appears once and says the behavior can be changed in settings.
+- Windows: stripped native Java launchers from bundled runtime so Task Manager shows Beacon instead of OpenJDK.
+
 ## v0.3.3
 
 - Desktop: refined main layout with key selection above connection modes.

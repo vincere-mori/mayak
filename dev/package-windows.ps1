@@ -104,6 +104,7 @@ Reset-Directory $TempOutput
 if (Test-Path $RuntimeDir) { Remove-Item -LiteralPath $RuntimeDir -Recurse -Force }
 & jlink `
     --strip-debug `
+    --strip-native-commands `
     --no-header-files `
     --no-man-pages `
     --compress=2 `
