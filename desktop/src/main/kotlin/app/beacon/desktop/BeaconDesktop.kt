@@ -59,35 +59,7 @@ import javax.swing.border.EmptyBorder
 import kotlin.io.path.createFile
 import kotlin.io.path.exists
 import kotlin.system.exitProcess
-import java.io.File
-import java.io.RandomAccessFile
-import java.nio.channels.FileChannel
-import java.nio.channels.FileLock
 import app.beacon.desktop.BeaconTheme as T
-
-private var lockFile: File? = null
-private var lockChannel: FileChannel? = null
-private var lock: FileLock? = null
-
-fun checkSingleInstance(): Boolean {
-    return try {
-        val path = DesktopPaths.appDir.resolve("beacon.lock")
-        lockFile = path.toFile()
-        val raf = RandomAccessFile(lockFile, "rw")
-        val channel = raf.channel
-        val fLock = channel.tryLock()
-        if (fLock == null) {
-            false
-        } else {
-            lockChannel = channel
-            lock = fLock
-            lockFile?.deleteOnExit()
-            true
-        }
-    } catch (e: Exception) {
-        true
-    }
-}
 
 fun main() {
     val store = DesktopProfileStore()
@@ -135,8 +107,8 @@ fun main() {
     ToolTipManager.sharedInstance().reshowDelay = 80
     ToolTipManager.sharedInstance().dismissDelay = 8000
 
-    if (!checkSingleInstance()) {
-        SwingUtilities.invokeAndWait { showAlreadyRunningDialog() }
+    if (!DesktopSingleInstance.claim()) {
+        DesktopSingleInstance.requestRestore()
         exitProcess(0)
     }
 
@@ -145,77 +117,6 @@ fun main() {
     SwingUtilities.invokeLater {
         BeaconDesktop().show()
     }
-}
-
-private fun showAlreadyRunningDialog() {
-    val dlg = JDialog(null as java.awt.Frame?, "Beacon", true).apply {
-        defaultCloseOperation = JDialog.DISPOSE_ON_CLOSE
-        isResizable = false
-        runCatching {
-            ImageIcon(BeaconDesktop::class.java.getResource("/icon.png")).image
-        }.getOrNull()?.let { setIconImage(it) }
-    }
-
-    val content = object : JPanel(BorderLayout()) {
-        override fun paintComponent(g: Graphics) {
-            val g2 = g as Graphics2D
-            g2.paint = GradientPaint(0f, 0f, T.BG_TOP, 0f, height.toFloat(), T.BG_BOT)
-            g2.fillRect(0, 0, width, height)
-        }
-    }.apply {
-        isOpaque = true
-        border = EmptyBorder(22, 24, 22, 24)
-    }
-
-    val card = T.card(18f).apply {
-        layout = BorderLayout(18, 0)
-        border = EmptyBorder(18, 18, 18, 18)
-    }
-    val icon = JLabel(ImageIcon(
-        ImageIcon(BeaconDesktop::class.java.getResource("/icon.png")).image
-            .getScaledInstance(44, 44, Image.SCALE_SMOOTH)
-    ))
-    card.add(icon, BorderLayout.WEST)
-
-    val text = JPanel().apply {
-        isOpaque = false
-        layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        add(JLabel(L.t("Beacon уже запущен", "Beacon is already running")).apply {
-            foreground = T.TEXT
-            font = font.deriveFont(Font.BOLD, 18f)
-            alignmentX = 0f
-        })
-        add(Box.createVerticalStrut(6))
-        add(JLabel(L.t(
-            "<html><div style='width:300px'>Откройте уже запущенное окно или значок в трее.</div></html>",
-            "<html><div style='width:300px'>Open the existing window or tray icon.</div></html>"
-        )).apply {
-            foreground = T.TEXT_DIM
-            font = font.deriveFont(Font.PLAIN, 13f)
-            alignmentX = 0f
-        })
-    }
-    card.add(text, BorderLayout.CENTER)
-    content.add(card, BorderLayout.CENTER)
-
-    val buttonRow = JPanel().apply {
-        isOpaque = false
-        layout = BoxLayout(this, BoxLayout.X_AXIS)
-        border = EmptyBorder(16, 0, 0, 0)
-        add(Box.createHorizontalGlue())
-        add(T.accentButton(L.t("Понятно", "OK")).apply {
-            preferredSize = Dimension(132, 38)
-            minimumSize = Dimension(132, 38)
-            maximumSize = Dimension(132, 38)
-            addActionListener { dlg.dispose() }
-        })
-    }
-    content.add(buttonRow, BorderLayout.SOUTH)
-
-    dlg.contentPane = content
-    dlg.size = Dimension(480, 220)
-    dlg.setLocationRelativeTo(null)
-    dlg.isVisible = true
 }
 
 /**
@@ -338,6 +239,7 @@ class BeaconDesktop(
         }
         refresh()
         frame.isVisible = true
+        DesktopSingleInstance.onRestore { restoreWindow() }
         syncTrayIcon()
         Timer(700) { e ->
             (e.source as Timer).stop()
@@ -1014,6 +916,7 @@ class BeaconDesktop(
         stopMonitoring()
         removeTrayIcon()
         runCatching { singBox.stop(); systemProxy.restore() }
+        DesktopSingleInstance.close()
         frame.dispose(); exitProcess(0)
     }
 

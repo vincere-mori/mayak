@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.1
+
+- Desktop: second launch now restores the existing window from tray instead of showing an already-running dialog.
+
 ## v0.4.0
 
 - Desktop: moved Proxy/TUN/WARP controls to the center stack under the main Connect button.
