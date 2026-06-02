@@ -100,9 +100,46 @@ jobs:
           name: beacon-windows
           path: build/release/Beacon-Windows-*.exe
 
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build DMG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          chmod +x dev/ensure-sing-box.sh dev/package-macos.sh
+          ./gradlew :core:test :desktop:test :desktop:installDist
+          dev/package-macos.sh "$VERSION" "${{ matrix.arch }}"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: beacon-macos-${{ matrix.arch }}
+          path: build/release/Beacon-macOS-*.dmg
+
   publish:
     runs-on: ubuntu-latest
-    needs: [android, linux, windows]
+    needs: [android, linux, windows, macos]
 
     steps:
       - name: Checkout
@@ -118,16 +155,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mv release/beacon-android/app-release.apk "release/Beacon-Android-${GITHUB_REF_NAME}.apk"
-          echo "### Какой файл скачивать / Which file to download:" > release_notes.txt
-          echo "" >> release_notes.txt
-          echo "* 📱 **Beacon-Android-${GITHUB_REF_NAME}.apk** — Версия для мобильных устройств на базе **Android** (смартфоны, планшеты)." >> release_notes.txt
-          echo "* 🐧 **Beacon-Linux-${GITHUB_REF_NAME}.tar.gz** — Архив для компьютеров на базе **Linux** (x86_64 / arm64)." >> release_notes.txt
-          echo "* 💻 **Beacon-Windows-${GITHUB_REF_NAME}.exe** — Установщик для компьютеров на базе **Windows** (ПК, ноутбуки)." >> release_notes.txt
-          echo "" >> release_notes.txt
-          echo "---" >> release_notes.txt
+          cat > release_notes.txt <<EOF
+          ### Which file to download
+
+          * **Beacon-Android-${GITHUB_REF_NAME}.apk** - Android.
+          * **Beacon-Linux-${GITHUB_REF_NAME}.tar.gz** - Linux.
+          * **Beacon-macOS-arm64-${GITHUB_REF_NAME}.dmg** - macOS Apple Silicon.
+          * **Beacon-macOS-x64-${GITHUB_REF_NAME}.dmg** - macOS Intel.
+          * **Beacon-Windows-${GITHUB_REF_NAME}.exe** - Windows.
+
+          ---
+          EOF
           gh release create "${GITHUB_REF_NAME}" \
             "release/Beacon-Android-${GITHUB_REF_NAME}.apk" \
             release/beacon-linux/Beacon-Linux-*.tar.gz \
+            release/beacon-macos-*/*.dmg \
             release/beacon-windows/Beacon-Windows-*.exe \
             --repo "${GITHUB_REPOSITORY}" \
             --title "Beacon ${GITHUB_REF_NAME}" \

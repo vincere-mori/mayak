@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.4.2
+
+- macOS: added DMG release builds for Apple Silicon and Intel.
+- macOS: Proxy mode now configures system proxies through `networksetup`.
+
 ## v0.4.1
 
 - Desktop: second launch now restores the existing window from tray instead of showing an already-running dialog.

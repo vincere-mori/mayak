@@ -10,14 +10,14 @@ object DesktopPaths {
                 ?.takeIf { it.isNotBlank() }
                 ?.let(Path::of)
                 ?: Path.of(System.getProperty("user.home"), ".config")
+            Platform.isMac -> Path.of(System.getProperty("user.home"), "Library", "Application Support")
             else -> System.getenv("XDG_CONFIG_HOME")
                 ?.takeIf { it.isNotBlank() }
                 ?.let(Path::of)
                 ?: Path.of(System.getProperty("user.home"), ".config")
         }
 
-        // Windows keeps legacy capitalised "Beacon"; Linux follows XDG lowercase.
-        val dirName = if (Platform.isWindows) "Beacon" else "beacon"
+        val dirName = if (Platform.isWindows || Platform.isMac) "Beacon" else "beacon"
         base.resolve(dirName).also { it.createDirectories() }
     }
 

@@ -20,6 +20,7 @@
 | Windows | [Latest release](https://github.com/vincere-mori/beacon/releases/latest) |
 | Android | [Latest release](https://github.com/vincere-mori/beacon/releases/latest) |
 | Linux | [Latest release](https://github.com/vincere-mori/beacon/releases/latest) |
+| macOS | [Latest release](https://github.com/vincere-mori/beacon/releases/latest) |
 
 <p align="center">
   <img src=".assets/screenshot-off.png" width="47%" alt="Beacon отключен">
@@ -66,7 +67,7 @@ dev\run-desktop-dev.bat
 Windows installer:
 
 ```bat
-dev\build-windows.bat 0.4.1
+dev\build-windows.bat 0.4.2
 ```
 
 Android APK:
@@ -78,7 +79,13 @@ Android APK:
 Linux package:
 
 ```bash
-dev/package-linux.sh 0.4.1
+dev/package-linux.sh 0.4.2
+```
+
+macOS package:
+
+```bash
+dev/package-macos.sh 0.4.2
 ```
 
 ## Стек

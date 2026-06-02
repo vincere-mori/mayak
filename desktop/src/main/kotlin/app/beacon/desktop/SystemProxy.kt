@@ -5,4 +5,8 @@ interface SystemProxy {
     fun restore()
 }
 
-fun platformProxy(): SystemProxy = if (Platform.isWindows) WindowsProxy() else LinuxProxy()
+fun platformProxy(): SystemProxy = when {
+    Platform.isWindows -> WindowsProxy()
+    Platform.isMac -> MacProxy()
+    else -> LinuxProxy()
+}

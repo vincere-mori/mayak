@@ -1137,6 +1137,10 @@ class BeaconDesktop(
     private fun isElevated() = runCatching {
         if (Platform.isWindows) {
             ProcessBuilder("cmd", "/c", "net session >nul 2>&1").start().waitFor() == 0
+        } else if (Platform.isMac) {
+            ProcessBuilder("id", "-u").start()
+                .also { it.waitFor(2, java.util.concurrent.TimeUnit.SECONDS) }
+                .inputStream.bufferedReader().readText().trim() == "0"
         } else {
             ProcessBuilder("id", "-u").start()
                 .also { it.waitFor(2, java.util.concurrent.TimeUnit.SECONDS) }
@@ -1156,12 +1160,28 @@ class BeaconDesktop(
                 ProcessBuilder("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
                     "-Command", "Start-Process -FilePath $q -Verb RunAs").start(); true
             }.getOrDefault(false)
+        } else if (Platform.isMac) {
+            val shellCommand = (listOf(command) + args).joinToString(" ") { shellQuote(it) }
+            runCatching {
+                ProcessBuilder(
+                    "osascript",
+                    "-e",
+                    "do shell script ${appleScriptQuote(shellCommand)} with administrator privileges"
+                ).start()
+                true
+            }.getOrDefault(false)
         } else {
             runCatching {
                 ProcessBuilder(listOf("pkexec") + listOf(command) + args).start(); true
             }.getOrDefault(false)
         }
     }
+
+    private fun shellQuote(value: String): String =
+        "'" + value.replace("'", "'\"'\"'") + "'"
+
+    private fun appleScriptQuote(value: String): String =
+        "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
     private fun JLabel.fullWidth() = apply {
         alignmentX = Component.CENTER_ALIGNMENT

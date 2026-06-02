@@ -87,3 +87,39 @@ jobs:
         with:
           name: beacon-windows-installer
           path: build/release/Beacon-Windows-*.exe
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build DMG
+        run: |
+          chmod +x dev/ensure-sing-box.sh dev/package-macos.sh
+          ./gradlew :core:test :desktop:test :desktop:installDist
+          dev/package-macos.sh "0.2.0" "${{ matrix.arch }}"
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: beacon-macos-${{ matrix.arch }}
+          path: build/release/Beacon-macOS-*.dmg
