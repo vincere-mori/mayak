@@ -88,7 +88,8 @@ import app.beacon.vpn.VpnStatus
 @Composable
 fun BeaconApp(
     viewModel: MainViewModel,
-    onConnectRequested: () -> Unit
+    onConnectRequested: () -> Unit,
+    onExportLogsRequested: () -> Unit
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -96,6 +97,7 @@ fun BeaconApp(
         BeaconScreen(
             state = state,
             onConnectRequested = onConnectRequested,
+            onExportLogs = onExportLogsRequested,
             onDisconnect = viewModel::disconnect,
             onTabSelected = viewModel::selectTab,
             onDraftChanged = viewModel::setDraftKey,
@@ -119,6 +121,7 @@ fun BeaconApp(
 private fun BeaconScreen(
     state: BeaconUiState,
     onConnectRequested: () -> Unit,
+    onExportLogs: () -> Unit,
     onDisconnect: () -> Unit,
     onTabSelected: (BeaconTab) -> Unit,
     onDraftChanged: (String) -> Unit,
@@ -194,7 +197,8 @@ private fun BeaconScreen(
                 padding = padding,
                 onSaveDnsSettings = onSaveDnsSettings,
                 onIpv6Changed = onIpv6Changed,
-                onSaveRouting = onSaveRouting
+                onSaveRouting = onSaveRouting,
+                onExportLogs = onExportLogs
             )
         }
     }
@@ -528,7 +532,8 @@ private fun SettingsTab(
     padding: PaddingValues,
     onSaveDnsSettings: (DnsMode, String, Boolean) -> Unit,
     onIpv6Changed: (Boolean) -> Unit,
-    onSaveRouting: (RoutingSettings) -> Unit
+    onSaveRouting: (RoutingSettings) -> Unit,
+    onExportLogs: () -> Unit
 ) {
     val savedRouting = state.settings.routing.ensureDefaults()
     var selectedDnsMode by remember(state.settings.dnsMode) {
@@ -605,6 +610,22 @@ private fun SettingsTab(
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        item {
+            Card(shape = MaterialTheme.shapes.medium) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Логи", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Сохрани журнал работы для диагностики. Ключи и пароли вырезаются автоматически.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(onClick = onExportLogs) {
+                        Text("Экспортировать логи")
+                    }
+                }
+            }
+        }
         item {
             Card(shape = MaterialTheme.shapes.medium) {
                 Column(Modifier.padding(16.dp)) {

@@ -37,13 +37,20 @@ class MainActivity : ComponentActivity() {
         requestVpnPermissionThenConnect()
     }
 
+    private val exportLogsDocument = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri != null) viewModel.exportLogsTo(uri, contentResolver)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         setContent {
             BeaconApp(
                 viewModel = viewModel,
-                onConnectRequested = ::requestPermissionsThenConnect
+                onConnectRequested = ::requestPermissionsThenConnect,
+                onExportLogsRequested = { exportLogsDocument.launch("beacon-logs.txt") }
             )
         }
         handleLaunchIntent(intent)

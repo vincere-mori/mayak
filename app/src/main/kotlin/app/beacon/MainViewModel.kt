@@ -1,7 +1,9 @@
 package app.beacon
 
 import android.app.Application
+import android.content.ContentResolver
 import android.net.TrafficStats
+import android.net.Uri
 import android.os.Process
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -18,6 +20,7 @@ import app.beacon.core.singbox.SingBoxConfigSettings
 import app.beacon.core.singbox.RoutingPlatform
 import app.beacon.data.BeaconSettings
 import app.beacon.data.ProfileRepository
+import app.beacon.log.AppJournal
 import app.beacon.data.SharedPrefsProfileRepository
 import app.beacon.ui.BeaconTab
 import app.beacon.ui.BeaconUiState
@@ -251,6 +254,7 @@ class MainViewModel(
 
     fun connect() {
         runAction {
+            AppJournal.info("vpn", "connect requested")
             val profile = repository.currentActiveProfile()
                 ?: throw IllegalStateException("сначала добавь ключ")
             connect(profile, repository.currentSettings())
@@ -259,7 +263,15 @@ class MainViewModel(
 
     fun disconnect() {
         runAction {
+            AppJournal.info("vpn", "disconnect requested")
             vpnGateway.disconnect()
+        }
+    }
+
+    fun exportLogsTo(uri: Uri, contentResolver: ContentResolver) {
+        viewModelScope.launch {
+            AppJournal.exportToUri(contentResolver, uri)
+                .onFailure { lastError.value = it.message ?: "не удалось сохранить логи" }
         }
     }
 
@@ -337,7 +349,10 @@ class MainViewModel(
             busy.value = true
             lastError.value = null
             runCatching { block() }
-                .onFailure { lastError.value = it.message ?: "ошибка" }
+                .onFailure {
+                    lastError.value = it.message ?: "ошибка"
+                    AppJournal.error("app", it.message ?: "ошибка")
+                }
             busy.value = false
         }
     }

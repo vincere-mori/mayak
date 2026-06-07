@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.5.1
+
+- Android: added log export for diagnostics (secrets are stripped before export).
+
 ## v0.5.0
 
 - Added configurable split tunneling for domains, CIDRs, Android apps and desktop processes.
