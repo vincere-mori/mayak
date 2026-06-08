@@ -163,6 +163,9 @@ class BeaconDesktop(
     private var connecting = false
     private var refreshing = false
     private var registeringWarp = false
+    // Растёт на каждый connect/disconnect: связывает завершение фонового старта с
+    // актуальным намерением, чтобы отменённое подключение не показывало ошибку.
+    private var connectToken = 0
 
     private lateinit var frame: JFrame
     private val appIcon = ImageIcon(BeaconDesktop::class.java.getResource("/icon.png")).image
@@ -1025,6 +1028,7 @@ class BeaconDesktop(
         }
 
         connecting = true; refresh()
+        val token = ++connectToken
 
         val config = configBuilder.build(
             profile = profile,
@@ -1054,6 +1058,12 @@ class BeaconDesktop(
             } else result.exceptionOrNull()
 
             SwingUtilities.invokeLater {
+                // Пользователь успел отменить или переключиться — игнорируем результат
+                // этого старта, иначе он перезатрёт состояние и покажет ложную ошибку.
+                if (token != connectToken) {
+                    if (error == null) runCatching { singBox.stop() }
+                    return@invokeLater
+                }
                 connecting = false
                 connected = error == null
                 if (connected) startMonitoring()
@@ -1065,6 +1075,7 @@ class BeaconDesktop(
 
     private fun disconnect() {
         connecting = false
+        connectToken++
         stopMonitoring()
         Thread {
             runCatching { singBox.stop(); systemProxy.restore() }

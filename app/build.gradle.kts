@@ -13,8 +13,8 @@ android {
         applicationId = "app.beacon"
         minSdk = 24
         targetSdk = 35
-        versionCode = 14
-        versionName = "0.5.1"
+        versionCode = 15
+        versionName = "0.5.2"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")

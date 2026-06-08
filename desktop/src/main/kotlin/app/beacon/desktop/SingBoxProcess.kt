@@ -24,6 +24,9 @@ class SingBoxProcess(
     private val maxLogBytes: Long = 4_000_000L
 ) {
     @Volatile private var process: Process? = null
+    // Поднимается, когда пользователь отменяет подключение во время старта, чтобы
+    // start() не докручивал ретраи и не оставлял осиротевший sing-box.
+    @Volatile private var stopRequested = false
 
     init {
         Runtime.getRuntime().addShutdownHook(Thread { stop() })
@@ -34,6 +37,7 @@ class SingBoxProcess(
 
     fun start(configJson: String, tunMode: Boolean = false): Result<Unit> {
         if (running) stop()
+        stopRequested = false
 
         val binary = binaryLocator.locate()
             ?: return Result.failure(IllegalStateException("sing-box не найден"))
@@ -43,22 +47,30 @@ class SingBoxProcess(
         configFile.parent?.let { Files.createDirectories(it) }
         rotateLogIfLarge()
         writeConfig(configJson)
-        checkConfig(binary)?.let { error ->
-            deleteConfig()
-            return Result.failure(error)
-        }
+        // Раньше тут гонялся отдельный `sing-box check` на каждый запуск — это холодный
+        // старт 44МБ бинаря (под антивирусом легко 2-5с). `run` валидирует конфиг сам и
+        // пишет причину в лог, поэтому проверяем конфиг только если запуск реально упал.
+
+        // На Windows наш stop() жёстко убивает sing-box (destroy() = TerminateProcess,
+        // graceful-сигнала нет), и WinTun удерживает адаптер tun0. Снимаем его заранее,
+        // иначе первый `run` ~15с висит на "configure tun interface: file already exists",
+        // прежде чем сработает ретрай. Если адаптера нет — это быстрый no-op.
+        if (tunMode && Platform.isWindows) cycleStaleTunAdapter()
 
         val timeout = if (tunMode) tunReadyTimeoutMs else readyTimeoutMs
         // On Linux, the kernel releases the TUN fd on process exit, so stale adapters
-        // are not possible. Only retry on Windows where WinTun can get stuck.
-        val attempts = if (tunMode && Platform.isWindows) 3 else 1
+        // are not possible. One retry on Windows is enough as a fallback to the
+        // up-front adapter cleanup above.
+        val attempts = if (tunMode && Platform.isWindows) 2 else 1
 
         var lastError: Throwable? = null
         repeat(attempts) { attempt ->
+            if (stopRequested) {
+                deleteConfig()
+                return Result.failure(IllegalStateException("запуск отменён"))
+            }
             if (attempt > 0) {
-                // Прошлый запуск sing-box упал на "configure tun interface:
-                // Cannot create a file when that file already exists" — WinTun
-                // удержал виртуальный адаптер tun0. Циклим его, ждём и пробуем ещё раз.
+                // Запуск всё равно упал на stale tun0 — циклим адаптер ещё раз и пробуем.
                 cycleStaleTunAdapter()
                 Thread.sleep(1_200)
             }
@@ -77,8 +89,11 @@ class SingBoxProcess(
             abortLastProcess()
         }
 
+        // Запуск упал, а в логе нет явной FATAL/ERROR — спросим у `check`, что не так
+        // с конфигом (он ещё на диске), чтобы показать пользователю точную причину.
+        val enriched = if (lastSingBoxError() == null) checkConfig(binary) ?: lastError else lastError
         deleteConfig()
-        return Result.failure(lastError ?: IllegalStateException("sing-box не запустился"))
+        return Result.failure(enriched ?: IllegalStateException("sing-box не запустился"))
     }
 
     private fun waitUntilReady(timeoutMs: Long): Boolean {
@@ -174,6 +189,7 @@ class SingBoxProcess(
     }
 
     fun stop() {
+        stopRequested = true
         abortLastProcess()
         deleteConfig()
     }

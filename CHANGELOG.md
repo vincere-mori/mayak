@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.5.2
+
+- Desktop: TUN mode now starts in about a second instead of up to a minute.
+- Desktop: dropped the separate `sing-box check` pass on every start (config is validated by the run itself, and only re-checked on failure to report the reason).
+- Windows: the stale `tun0` adapter left by a hard process kill is now cleared before the first start, so it no longer wastes ~15s failing with "file already exists" before retrying.
+- Desktop: cancelling while connecting now aborts the pending start cleanly instead of showing a false error or leaving an orphaned sing-box.
+
 ## v0.5.1
 
 - Android: added log export for diagnostics (secrets are stripped before export).
