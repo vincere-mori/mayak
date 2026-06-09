@@ -8,20 +8,22 @@ gradients or noisy "sea" lines.
 
 from PIL import Image, ImageDraw, ImageFilter, ImageChops
 
-# palette (brand navy + a single accent blue, matching BeaconTheme)
-NAVY_TOP = (20, 28, 70)
-NAVY_BOT = (8, 12, 32)
-GLOW = (96, 168, 255)
+# palette - matches the lighthouse drawn in-app (LighthouseHero):
+# red roof, blue/red/blue bands, warm lamp light, dark navy sky.
+NAVY_TOP = (12, 18, 46)
+NAVY_BOT = (4, 6, 20)
+GLOW = (255, 198, 112)  # warm halo behind the lamp
 
 TOWER = (237, 242, 252)
 TOWER_EDGE = (206, 217, 238)
-BAND = (52, 110, 228)
-ROOF = (45, 98, 212)
+BAND_BLUE = (54, 110, 228)
+BAND_RED = (218, 66, 76)
+ROOF = (190, 50, 60)
 LANTERN = (14, 21, 50)
 GALLERY = (210, 220, 240)
-LENS = (150, 212, 255)
-LENS_CORE = (230, 245, 255)
-BEAM = (150, 205, 255)
+LENS = (255, 226, 150)        # warm bulb
+LENS_CORE = (255, 245, 214)
+BEAM = (255, 212, 132)        # warm beam
 
 
 def _lerp(a, b, t):
@@ -124,18 +126,18 @@ def render_foreground(s):
     d.polygon([(tt_l, tower_y0), (tt_r, tower_y0), (tb_r, tower_y1), (tb_l, tower_y1)],
               fill=(*TOWER, 255))
 
-    # two accent bands, clipped to the taper
+    # three bands clipped to the taper - blue / red / blue, like the in-app tower
     def edge_at(y):
         t = (y - tower_y0) / (tower_y1 - tower_y0)
         return tt_l + (tb_l - tt_l) * t, tt_r + (tb_r - tt_r) * t
 
-    for frac in (0.34, 0.66):
+    for frac, col in ((0.28, BAND_BLUE), (0.52, BAND_RED), (0.76, BAND_BLUE)):
         sy = tower_y0 + frac * (tower_y1 - tower_y0)
-        bh = 0.052 * s
+        bh = 0.048 * s
         l0, r0 = edge_at(sy - bh / 2)
         l1, r1 = edge_at(sy + bh / 2)
         d.polygon([(l0, sy - bh / 2), (r0, sy - bh / 2),
-                   (r1, sy + bh / 2), (l1, sy + bh / 2)], fill=(*BAND, 255))
+                   (r1, sy + bh / 2), (l1, sy + bh / 2)], fill=(*col, 255))
 
     # gallery walkway under the lantern
     gal_w = 0.300 * s

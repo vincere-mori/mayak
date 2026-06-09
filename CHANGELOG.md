@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.5.5
+
+- Recoloured the app icon to match the in-app lighthouse: red roof, blue/red/blue bands, a warm lamp light instead of a cold one and a darker sky. Regenerated for every platform.
+
 ## v0.5.4
 
 - Android: added a themed-icon (monochrome) layer so the launcher icon renders correctly with Material You theming on Android 13+.
