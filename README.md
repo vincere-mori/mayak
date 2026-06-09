@@ -5,7 +5,7 @@
 <h1 align="center">Beacon</h1>
 
 <p align="center">
-  <b>Минималистичный VLESS Reality клиент для Windows, Linux и Android.</b><br>
+  <b>Минималистичный VLESS Reality клиент для Windows, macOS, Linux и Android.</b><br>
   Свой сервер, локальные ключи, без аккаунтов, облака и телеметрии.
 </p>
 

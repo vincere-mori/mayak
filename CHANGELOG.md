@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.5.6
+
+- Ships the recoloured lighthouse icon across all platforms.
+- README: listed macOS among the supported platforms.
+
 ## v0.5.5
 
 - Recoloured the app icon to match the in-app lighthouse: red roof, blue/red/blue bands, a warm lamp light instead of a cold one and a darker sky. Regenerated for every platform.
