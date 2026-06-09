@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.5.4
+
+- Android: added a themed-icon (monochrome) layer so the launcher icon renders correctly with Material You theming on Android 13+.
+- Android: removed leftover resources from the old icon (unused foreground vector and colour).
+
 ## v0.5.3
 
 - Redesigned the app icon into a cleaner, flat geometric lighthouse with a softer light beam, regenerated for every platform (Windows `.ico`, macOS `.icns`, Linux, Android adaptive icon and the in-app/README logo).
