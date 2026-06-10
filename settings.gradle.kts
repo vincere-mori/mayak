@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Beacon"
+rootProject.name = "Mayak"
 include(":app", ":core", ":desktop")

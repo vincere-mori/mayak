@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.0
+
+- Renamed the project to **Маяк** (Mayak). New application id `app.mayak`, new package namespace, renamed window titles, notifications, Quick Settings tile and installers.
+
 ## v0.5.6
 
 - Ships the recoloured lighthouse icon across all platforms.
@@ -17,7 +21,7 @@
 ## v0.5.3
 
 - Redesigned the app icon into a cleaner, flat geometric lighthouse with a softer light beam, regenerated for every platform (Windows `.ico`, macOS `.icns`, Linux, Android adaptive icon and the in-app/README logo).
-- Icon artwork is now generated from a single shared source (`dev/beacon_icon.py`) so desktop and Android never drift apart.
+- Icon artwork is now generated from a single shared source (`dev/mayak_icon.py`) so desktop and Android never drift apart.
 
 ## v0.5.2
 
@@ -35,7 +39,7 @@
 - Added configurable split tunneling for domains, CIDRs, Android apps and desktop processes.
 - Added custom DNS support and automatic reconnect after network setting changes.
 - Android: added Quick Settings tile, traffic speed, local DNS routing and network handoff handling.
-- Android: kept the Beacon design, improved the lighthouse animation and added a Fresnel lens.
+- Android: kept the Mayak design, improved the lighthouse animation and added a Fresnel lens.
 - Desktop: added routing and WARP route settings without changing the main layout.
 
 ## v0.4.2
@@ -56,7 +60,7 @@
 - Desktop: restored the previous lighthouse shape and wave animation.
 - Desktop: fixed Proxy/TUN/WARP controls, key picker popup, stats test button and already-running dialog.
 - Desktop: tray notice now appears once and says the behavior can be changed in settings.
-- Windows: stripped native Java launchers from bundled runtime so Task Manager shows Beacon instead of OpenJDK.
+- Windows: stripped native Java launchers from bundled runtime so Task Manager shows Mayak instead of OpenJDK.
 
 ## v0.3.3
 
@@ -76,13 +80,13 @@
 
 ## v0.3.0
 
-- Linux desktop support: Beacon now runs on Linux (x86_64 / arm64) with the same feature set as Windows.
+- Linux desktop support: Mayak now runs on Linux (x86_64 / arm64) with the same feature set as Windows.
 - Linux proxy mode uses `gsettings` to configure system proxy (GNOME); other DEs receive no-op on restore.
 - Linux TUN mode requires root or `pkexec` elevation; `relaunchElevated()` uses `pkexec` automatically.
-- App data stored in `$XDG_CONFIG_HOME/beacon` (default `~/.config/beacon`) on Linux.
+- App data stored in `$XDG_CONFIG_HOME/mayak` (default `~/.config/mayak`) on Linux.
 - Binary locator resolves `sing-box` (no `.exe`) on Linux.
 - Stale process cleanup uses `pkill` on Linux; WinTun adapter cycling is Windows-only.
-- CI: new `linux` job builds `Beacon-Linux-vX.Y.Z.tar.gz` (jpackage app-image with bundled JRE).
+- CI: new `linux` job builds `Mayak-Linux-vX.Y.Z.tar.gz` (jpackage app-image with bundled JRE).
 - Android: fix ViewModel factory to pass application context.
 
 ## v0.2.0
@@ -107,11 +111,11 @@
 - Desktop dev launcher now downloads checked `sing-box.exe` automatically.
 - VLESS import now tolerates copied line breaks and stores Reality `spx` / `pqv` fields.
 - Added Windows desktop modes: `Proxy` for partial traffic and `TUN` for full traffic.
-- TUN mode checks administrator rights and can relaunch packaged Beacon elevated.
+- TUN mode checks administrator rights and can relaunch packaged Mayak elevated.
 
 ## v0.1.3
 
-- Added Beacon lighthouse icon for Android, Windows window and Windows installer.
+- Added Mayak lighthouse icon for Android, Windows window and Windows installer.
 - README rewritten for normal users.
 - Security hardening: bundled sing-box is required, old plaintext Android prefs are migrated on read, temp config is deleted before each run and on shutdown.
 

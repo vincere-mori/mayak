@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds Beacon for Linux using jpackage (app-image) and produces a tarball.
+# Builds Mayak for Linux using jpackage (app-image) and produces a tarball.
 # Usage: package-linux.sh [version]
 # Requires: JDK 17+, jpackage (bundled with JDK), curl, tar
 set -euo pipefail
@@ -51,19 +51,19 @@ jlink \
 
 jpackage \
   --type app-image \
-  --name Beacon \
+  --name Mayak \
   --app-version "$VERSION" \
-  --vendor Beacon \
+  --vendor Mayak \
   --description "VLESS Reality client" \
   --input "$INPUT_DIR" \
   --runtime-image "$RUNTIME_DIR" \
   --main-jar desktop.jar \
-  --main-class app.beacon.desktop.BeaconDesktopKt \
+  --main-class app.mayak.desktop.MayakDesktopKt \
   --icon "$ICON" \
   --dest "$OUTPUT_DIR" \
   --java-options "$JAVA_OPTIONS"
 
-TARBALL="$RELEASE_DIR/Beacon-Linux-v$VERSION.tar.gz"
-tar -czf "$TARBALL" -C "$OUTPUT_DIR" Beacon
+TARBALL="$RELEASE_DIR/Mayak-Linux-v$VERSION.tar.gz"
+tar -czf "$TARBALL" -C "$OUTPUT_DIR" Mayak
 
 echo "$TARBALL"

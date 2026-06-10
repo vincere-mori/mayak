@@ -6,15 +6,15 @@ plugins {
 }
 
 android {
-    namespace = "app.beacon"
+    namespace = "app.mayak"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "app.beacon"
+        applicationId = "app.mayak"
         minSdk = 24
         targetSdk = 35
-        versionCode = 19
-        versionName = "0.5.6"
+        versionCode = 20
+        versionName = "1.0.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")

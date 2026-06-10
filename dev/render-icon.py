@@ -1,7 +1,7 @@
 from PIL import Image
 from pathlib import Path
 
-from beacon_icon import render_app_icon
+from mayak_icon import render_app_icon
 
 SIZE = 1024
 OUT_PNG = Path(__file__).resolve().parent.parent / "desktop" / "src" / "main" / "resources" / "icon.png"

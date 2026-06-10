@@ -37,7 +37,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: beacon-android
+          name: mayak-android
           path: app/build/outputs/apk/release/app-release.apk
 
   linux:
@@ -67,8 +67,8 @@ jobs:
       - name: Upload tarball
         uses: actions/upload-artifact@v4
         with:
-          name: beacon-linux
-          path: build/release/Beacon-Linux-*.tar.gz
+          name: mayak-linux
+          path: build/release/Mayak-Linux-*.tar.gz
 
   windows:
     runs-on: windows-latest
@@ -97,8 +97,8 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: beacon-windows
-          path: build/release/Beacon-Windows-*.exe
+          name: mayak-windows
+          path: build/release/Mayak-Windows-*.exe
 
   macos:
     strategy:
@@ -136,8 +136,8 @@ jobs:
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: beacon-macos-${{ matrix.arch }}
-          path: build/release/Beacon-macOS-*.dmg
+          name: mayak-macos-${{ matrix.arch }}
+          path: build/release/Mayak-macOS-*.dmg
 
   publish:
     runs-on: ubuntu-latest
@@ -156,24 +156,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mv release/beacon-android/app-release.apk "release/Beacon-Android-${GITHUB_REF_NAME}.apk"
+          mv release/mayak-android/app-release.apk "release/Mayak-Android-${GITHUB_REF_NAME}.apk"
           cat > release_notes.txt <<EOF
           ### Which file to download
 
-          * **Beacon-Android-${GITHUB_REF_NAME}.apk** - Android.
-          * **Beacon-Linux-${GITHUB_REF_NAME}.tar.gz** - Linux.
-          * **Beacon-macOS-arm64-${GITHUB_REF_NAME}.dmg** - macOS Apple Silicon.
-          * **Beacon-macOS-x64-${GITHUB_REF_NAME}.dmg** - macOS Intel.
-          * **Beacon-Windows-${GITHUB_REF_NAME}.exe** - Windows.
+          * **Mayak-Android-${GITHUB_REF_NAME}.apk** - Android.
+          * **Mayak-Linux-${GITHUB_REF_NAME}.tar.gz** - Linux.
+          * **Mayak-macOS-arm64-${GITHUB_REF_NAME}.dmg** - macOS Apple Silicon.
+          * **Mayak-macOS-x64-${GITHUB_REF_NAME}.dmg** - macOS Intel.
+          * **Mayak-Windows-${GITHUB_REF_NAME}.exe** - Windows.
 
           ---
           EOF
           gh release create "${GITHUB_REF_NAME}" \
-            "release/Beacon-Android-${GITHUB_REF_NAME}.apk" \
-            release/beacon-linux/Beacon-Linux-*.tar.gz \
-            release/beacon-macos-*/*.dmg \
-            release/beacon-windows/Beacon-Windows-*.exe \
+            "release/Mayak-Android-${GITHUB_REF_NAME}.apk" \
+            release/mayak-linux/Mayak-Linux-*.tar.gz \
+            release/mayak-macos-*/*.dmg \
+            release/mayak-windows/Mayak-Windows-*.exe \
             --repo "${GITHUB_REPOSITORY}" \
-            --title "Beacon ${GITHUB_REF_NAME}" \
+            --title "Mayak ${GITHUB_REF_NAME}" \
             --notes-file release_notes.txt \
             --generate-notes

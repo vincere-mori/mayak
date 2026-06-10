@@ -12,13 +12,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Starting Beacon desktop dev run...
+echo Starting Mayak desktop dev run...
 echo (running as current user. For TUN mode the app will ask to elevate.)
 call ".\gradlew.bat" :desktop:run --no-daemon
 
 if errorlevel 1 (
     echo.
-    echo Beacon dev run failed.
+    echo Mayak dev run failed.
     pause
     exit /b 1
 )

@@ -1,7 +1,7 @@
 from PIL import Image
 from pathlib import Path
 
-from beacon_icon import render_background, render_foreground
+from mayak_icon import render_background, render_foreground
 
 SIZE = 1024
 REPO_DIR = Path(__file__).resolve().parent.parent

@@ -34,7 +34,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: beacon-android-debug
+          name: mayak-android-debug
           path: app/build/outputs/apk/debug/app-debug.apk
 
   linux:
@@ -85,8 +85,8 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: beacon-windows-installer
-          path: build/release/Beacon-Windows-*.exe
+          name: mayak-windows-installer
+          path: build/release/Mayak-Windows-*.exe
 
   macos:
     strategy:
@@ -123,5 +123,5 @@ jobs:
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: beacon-macos-${{ matrix.arch }}
-          path: build/release/Beacon-macOS-*.dmg
+          name: mayak-macos-${{ matrix.arch }}
+          path: build/release/Mayak-macOS-*.dmg

@@ -8,7 +8,7 @@ if "%VERSION%"=="" set "VERSION=0.5.0"
 set "VERSION=%VERSION:v=%"
 
 echo ============================================================
-echo  Beacon Windows build  v%VERSION%
+echo  Mayak Windows build  v%VERSION%
 echo ============================================================
 
 echo.
@@ -30,8 +30,8 @@ echo.
 echo ============================================================
 echo  DONE
 echo ============================================================
-dir /b "build\release\Beacon-Windows-v%VERSION%.exe" 2>nul
-echo Installer: build\release\Beacon-Windows-v%VERSION%.exe
+dir /b "build\release\Mayak-Windows-v%VERSION%.exe" 2>nul
+echo Installer: build\release\Mayak-Windows-v%VERSION%.exe
 echo.
 explorer "build\release"
 exit /b 0

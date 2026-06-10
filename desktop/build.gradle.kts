@@ -9,7 +9,7 @@ kotlin {
 }
 
 application {
-    mainClass.set("app.beacon.desktop.BeaconDesktopKt")
+    mainClass.set("app.mayak.desktop.MayakDesktopKt")
 }
 
 tasks.named<JavaExec>("run") {

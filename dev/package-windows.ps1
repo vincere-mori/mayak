@@ -114,14 +114,14 @@ if ($LASTEXITCODE -ne 0) { throw "jlink failed" }
 
 & jpackage `
     --type exe `
-    --name Beacon `
+    --name Mayak `
     --app-version $MsiVersion `
-    --vendor Beacon `
+    --vendor Mayak `
     --description "VLESS Reality client" `
     --input $InputDir `
     --runtime-image $RuntimeDir `
     --main-jar desktop.jar `
-    --main-class app.beacon.desktop.BeaconDesktopKt `
+    --main-class app.mayak.desktop.MayakDesktopKt `
     --icon $IconPath `
     --dest $TempOutput `
     --win-dir-chooser `
@@ -135,17 +135,17 @@ if ($null -eq $Installer) {
     throw "installer exe not found"
 }
 
-$Target = Join-Path $ReleaseDir "Beacon-Windows-v$CleanVersion.exe"
+$Target = Join-Path $ReleaseDir "Mayak-Windows-v$CleanVersion.exe"
 Copy-Item $Installer.FullName $Target -Force
 
 # Рядом с инсталлером кладём скрипт тихого апгрейда:
 # пользователь запускает update.ps1 — никаких кликов, только прогресс-бар.
 # Или администратор/CI делает тихую установку через /install /quiet.
 $UpdateScript = @"
-# Тихий апгрейд Beacon: запускает инсталлер без визарда.
+# Тихий апгрейд Mayak: запускает инсталлер без визарда.
 # Двойной клик на installer.exe показывает визард — этот скрипт его пропускает.
 param([switch]`$Quiet)
-`$exe = Join-Path `$PSScriptRoot "Beacon-Windows-v$CleanVersion.exe"
+`$exe = Join-Path `$PSScriptRoot "Mayak-Windows-v$CleanVersion.exe"
 `$ui  = if (`$Quiet) { '/quiet' } else { '/passive' }
 `$proc = Start-Process -FilePath `$exe ``
     -ArgumentList '/install', `$ui, '/norestart' ``

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds Beacon for macOS using jpackage and produces a DMG.
+# Builds Mayak for macOS using jpackage and produces a DMG.
 # Usage: package-macos.sh [version] [arch-label]
 # Requires: JDK 17+, jpackage, sips, iconutil, curl
 set -euo pipefail
@@ -67,18 +67,18 @@ jlink \
 
 jpackage \
   --type dmg \
-  --name Beacon \
+  --name Mayak \
   --app-version "$PACKAGE_VERSION" \
-  --vendor Beacon \
+  --vendor Mayak \
   --description "VLESS Reality client" \
   --input "$INPUT_DIR" \
   --runtime-image "$RUNTIME_DIR" \
   --main-jar desktop.jar \
-  --main-class app.beacon.desktop.BeaconDesktopKt \
+  --main-class app.mayak.desktop.MayakDesktopKt \
   --icon "$ICON_ICNS" \
   --dest "$OUTPUT_DIR" \
-  --mac-package-name Beacon \
-  --mac-package-identifier app.beacon.desktop \
+  --mac-package-name Mayak \
+  --mac-package-identifier app.mayak.desktop \
   --java-options "$JAVA_OPTIONS"
 
 DMG="$(find "$OUTPUT_DIR" -maxdepth 1 -name '*.dmg' -print -quit)"
@@ -87,6 +87,6 @@ if [ -z "$DMG" ]; then
   exit 1
 fi
 
-TARGET="$RELEASE_DIR/Beacon-macOS-$ARCH_LABEL-v$VERSION.dmg"
+TARGET="$RELEASE_DIR/Mayak-macOS-$ARCH_LABEL-v$VERSION.dmg"
 cp "$DMG" "$TARGET"
 echo "$TARGET"
