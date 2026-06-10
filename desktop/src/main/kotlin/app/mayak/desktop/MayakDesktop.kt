@@ -1440,7 +1440,38 @@ class MayakDesktop(
         maximumSize = Dimension(Int.MAX_VALUE, preferredSize.height)
     }
 
+    private fun mix(a: Color, b: Color, t: Float) = Color(
+        a.red + ((b.red - a.red) * t).toInt(),
+        a.green + ((b.green - a.green) * t).toInt(),
+        a.blue + ((b.blue - a.blue) * t).toInt()
+    )
+
     // ── Inner UI components ──────────────────────────────────────────────────
+
+    /** Status dot with a soft pulsing halo while connecting/connected. */
+    private class StatusDot : JComponent() {
+        var pulsing = false
+        init {
+            preferredSize = Dimension(16, 16)
+            minimumSize = Dimension(16, 16)
+            maximumSize = Dimension(16, 16)
+        }
+        override fun paintComponent(g: Graphics) {
+            val g2 = g as Graphics2D
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+            val c = foreground
+            val cx = width / 2f
+            val cy = height / 2f
+            if (pulsing) {
+                val phase = ((1 + sin(System.currentTimeMillis() / 280.0)) / 2).toFloat()
+                val haloR = 4.5f + 3f * phase
+                g2.color = Color(c.red, c.green, c.blue, (70 - 45 * phase).toInt())
+                g2.fill(Ellipse2D.Float(cx - haloR, cy - haloR, haloR * 2, haloR * 2))
+            }
+            g2.color = c
+            g2.fill(Ellipse2D.Float(cx - 3.5f, cy - 3.5f, 7f, 7f))
+        }
+    }
 
     /** Visual frame around the key chip button. */
     private class KeyChipFrame(private val btn: JButton) : JPanel() {
