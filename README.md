@@ -79,7 +79,7 @@ dev\run-desktop-dev.bat
 Windows installer:
 
 ```bat
-dev\build-windows.bat 1.0.0
+dev\build-windows.bat 1.0.1
 ```
 
 Android APK:
@@ -91,13 +91,13 @@ Android APK:
 Linux package:
 
 ```bash
-dev/package-linux.sh 1.0.0
+dev/package-linux.sh 1.0.1
 ```
 
 macOS package:
 
 ```bash
-dev/package-macos.sh 1.0.0
+dev/package-macos.sh 1.0.1
 ```
 
 ## Стек

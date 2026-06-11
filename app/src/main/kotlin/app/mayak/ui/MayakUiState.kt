@@ -19,5 +19,6 @@ data class MayakUiState(
     val trafficUpBytesPerSec: Long = 0,
     val trafficDownBytesPerSec: Long = 0,
     val pingResults: Map<String, Long?> = emptyMap(),
-    val pingingIds: Set<String> = emptySet()
+    val pingingIds: Set<String> = emptySet(),
+    val journal: JournalUi = JournalUi()
 )

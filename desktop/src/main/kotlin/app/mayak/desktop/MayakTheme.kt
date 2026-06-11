@@ -312,20 +312,31 @@ class HoverAnimator(
     var progress = 0f
         private set
     private var target = 0f
-    private var startTime = 0L
+    private var startProgress = 0f
+    private var startTimeNanos = 0L
 
     fun setTarget(newTarget: Float) {
-        if (target == newTarget) return
-        target = newTarget
-        startTime = System.currentTimeMillis() - ((if (target == 1f) progress else 1f - progress) * durationMs).toLong()
+        val next = newTarget.coerceIn(0f, 1f)
+        if (target == next && timer?.isRunning == true) return
+        if (progress == next) return
+        target = next
+        startProgress = progress
+        startTimeNanos = System.nanoTime()
         if (timer == null) {
             timer = javax.swing.Timer(16) {
-                val elapsed = System.currentTimeMillis() - startTime
-                val t = (elapsed.toFloat() / durationMs).coerceIn(0f, 1f)
-                progress = if (target == 1f) t else 1f - t
+                val elapsedMs = (System.nanoTime() - startTimeNanos) / 1_000_000f
+                val t = (elapsedMs / durationMs).coerceIn(0f, 1f)
+                val eased = if (t < 0.5f) {
+                    4f * t * t * t
+                } else {
+                    1f - (-2f * t + 2f).let { it * it * it } / 2f
+                }
+                progress = startProgress + (target - startProgress) * eased
                 onUpdate(progress)
                 component.repaint()
                 if (t >= 1f) {
+                    progress = target
+                    onUpdate(progress)
                     timer?.stop()
                     timer = null
                 }

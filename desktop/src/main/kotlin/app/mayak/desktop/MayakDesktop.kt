@@ -110,7 +110,9 @@ fun main() {
     UIManager.put("ScrollBar.width", 8)
     UIManager.put("ToolTip.background", Color(28, 38, 80))
     UIManager.put("ToolTip.foreground", Color(220, 230, 255))
-    UIManager.put("ToolTip.border", BorderFactory.createLineBorder(Color(70, 100, 200), 1))
+    // скруглённые углы подсказок (FlatLaf рисует фон по форме рамки с arc)
+    UIManager.put("ToolTip.border", com.formdev.flatlaf.ui.FlatLineBorder(
+        java.awt.Insets(6, 10, 6, 10), Color(70, 100, 200), 1f, 10))
     ToolTipManager.sharedInstance().initialDelay = 250
     ToolTipManager.sharedInstance().reshowDelay = 80
     ToolTipManager.sharedInstance().dismissDelay = 8000
@@ -163,6 +165,7 @@ class MayakDesktop(
     private var state = store.load()
     private var connected = false
     private var connecting = false
+    private var disconnecting = false
     private var refreshing = false
     private var registeringWarp = false
     // Растёт на каждый connect/disconnect: связывает завершение фонового старта с
@@ -205,10 +208,10 @@ class MayakDesktop(
     private val upLabel = JLabel("↑ up")
     private val pingTestBtn = T.ghostButton("Тест").apply {
         toolTipText = "Проверить задержку до активного сервера"
-        preferredSize = Dimension(78, 26)
-        maximumSize = Dimension(78, 26)
-        minimumSize = Dimension(78, 26)
-        font = font.deriveFont(Font.BOLD, 11f)
+        preferredSize = Dimension(60, 21)
+        maximumSize = Dimension(60, 21)
+        minimumSize = Dimension(60, 21)
+        font = font.deriveFont(Font.BOLD, 10f)
         addActionListener { runPing(showProgress = true) }
     }
 
@@ -228,8 +231,8 @@ class MayakDesktop(
         frame = JFrame("Маяк").apply {
             defaultCloseOperation = JFrame.DO_NOTHING_ON_CLOSE
             minimumSize = Dimension(
-                minOf(740, windowSize.width),
-                minOf(540, windowSize.height)
+                minOf(680, windowSize.width),
+                minOf(620, windowSize.height)
             )
             preferredSize = windowSize
             iconImage = appIcon
@@ -248,6 +251,9 @@ class MayakDesktop(
                 override fun windowDeiconified(e: WindowEvent) = hero.resumeAnimation()
             })
             pack()
+            // дефолтный размер фиксируем явно (pack ужал бы до preferred контента),
+            // пользователь дальше может тянуть как хочет
+            size = windowSize
             setLocationRelativeTo(null)
         }
         refresh()
@@ -265,8 +271,9 @@ class MayakDesktop(
         val bounds = GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds
         val maxW = (bounds.width - 32).coerceAtLeast(640)
         val maxH = (bounds.height - 32).coerceAtLeast(520)
-        val width = 960.coerceAtMost(maxW).coerceAtLeast(720.coerceAtMost(maxW))
-        val height = 720.coerceAtMost(maxH).coerceAtLeast(540.coerceAtMost(maxH))
+        // вытянутый по вертикали портрет, а не широкий ландшафт
+        val width = 749.coerceAtMost(maxW).coerceAtLeast(660.coerceAtMost(maxW))
+        val height = 765.coerceAtMost(maxH).coerceAtLeast(600.coerceAtMost(maxH))
         return Dimension(width, height)
     }
 
@@ -303,7 +310,7 @@ class MayakDesktop(
     private fun centerStack(): JPanel = JPanel().apply {
         isOpaque = false
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = EmptyBorder(0, 18, 0, 18)
+        border = EmptyBorder(0, 18, 12, 18)
 
         add(Box.createVerticalStrut(2))
 
@@ -318,6 +325,8 @@ class MayakDesktop(
         add(modeControls())
         add(Box.createVerticalStrut(16))
         add(statsRow())
+        // гарантированный отступ снизу, чтобы карточки не прилипали к краю окна
+        add(Box.createVerticalStrut(20))
         add(Box.createVerticalGlue())
     }
 
@@ -348,10 +357,10 @@ class MayakDesktop(
 
     private fun statsRow(): JPanel = JPanel().apply {
         isOpaque = false
-        layout = GridLayout(1, 3, 14, 0)
+        layout = GridLayout(1, 3, 12, 0)
         alignmentX = Component.CENTER_ALIGNMENT
-        maximumSize = Dimension(680, 96)
-        preferredSize = Dimension(680, 96)
+        maximumSize = Dimension(620, 78)
+        preferredSize = Dimension(620, 78)
 
         pingCard = statCard(pingValue, pingLabel, T.ACCENT_LIGHT,
             L.t("<html>Задержка до сервера в миллисекундах.<br>Чем меньше — тем отзывчивее соединение.</html>",
@@ -372,25 +381,26 @@ class MayakDesktop(
     private fun statCard(value: JLabel, label: JLabel, accent: Color, tip: String, action: JButton? = null): JPanel =
         HoverCard(14f).apply {
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        border = EmptyBorder(8, 12, 8, 12)
         toolTipText = tip
         value.apply {
             foreground = accent
-            font = font.deriveFont(Font.BOLD, 22f)
+            font = font.deriveFont(Font.BOLD, 18f)
             alignmentX = Component.CENTER_ALIGNMENT
             horizontalAlignment = SwingConstants.CENTER
         }
         label.apply {
             foreground = T.MUTED
-            font = font.deriveFont(Font.PLAIN, 11f)
+            font = font.deriveFont(Font.PLAIN, 10f)
             alignmentX = Component.CENTER_ALIGNMENT
             horizontalAlignment = SwingConstants.CENTER
         }
         add(Box.createVerticalGlue())
         add(value.fullWidth())
-        add(Box.createVerticalStrut(2))
+        add(Box.createVerticalStrut(1))
         add(label.fullWidth())
         action?.let {
-            add(Box.createVerticalStrut(7))
+            add(Box.createVerticalStrut(5))
             add(it.also { btn -> btn.alignmentX = Component.CENTER_ALIGNMENT })
             bindHover(it)
         }
@@ -405,9 +415,14 @@ class MayakDesktop(
         val seg = ModeSegment(proxyModeBtn, tunModeBtn) { mode ->
             if (refreshing) return@ModeSegment
             val wasConnected = connected
-            state = state.copy(inboundMode = mode); persist()
-            refresh()
-            if (wasConnected) reconnectAfterModeChange()
+            state = state.copy(inboundMode = mode)
+            // тяжёлый persist/refresh откладываем на следующий тик EDT, чтобы
+            // не блокировать первые кадры анимации пилюли (иначе рывок на старте)
+            SwingUtilities.invokeLater {
+                persist()
+                refresh()
+                if (wasConnected) reconnectAfterModeChange()
+            }
         }
         proxyModeBtn.toolTipText =
             L.t("<html><b>Proxy</b> — VPN только для браузера и приложений с поддержкой прокси.<br>" +
@@ -462,7 +477,7 @@ class MayakDesktop(
                 val g2 = g as Graphics2D
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
                 val base = when {
-                    connecting -> T.WARN
+                    connecting || disconnecting -> T.WARN
                     connected -> T.DANGER
                     else -> T.ACCENT
                 }
@@ -471,7 +486,7 @@ class MayakDesktop(
                 val bw = width - pad * 2
                 val bh = height - pad * 2
 
-                if (connected || connecting) {
+                if (connected || connecting || disconnecting) {
                     val phase = ((1 + sin(System.currentTimeMillis() / 280.0)) / 2).toFloat()
                     val glowA = 20 + (18 * phase).toInt()
                     g2.stroke = BasicStroke(2f)
@@ -504,6 +519,7 @@ class MayakDesktop(
     }
 
     private fun toggleConnect() {
+        if (disconnecting) return
         if (connected || connecting) disconnect() else connect()
     }
 
@@ -1028,6 +1044,7 @@ class MayakDesktop(
     }.onFailure { showError(L.t("не удалось открыть лог: ", "failed to open log: ") + DesktopPaths.logFile) }
 
     private fun connect() {
+        if (disconnecting) return
         val profile = state.activeProfile ?: run {
             showError(L.t("сначала добавь и выбери ключ", "add and select a key first")); openKeys(); return
         }
@@ -1048,7 +1065,9 @@ class MayakDesktop(
             return
         }
 
-        connecting = true; refresh()
+        disconnecting = false
+        connecting = true
+        refresh()
         val token = ++connectToken
 
         val config = configBuilder.build(
@@ -1095,21 +1114,37 @@ class MayakDesktop(
     }
 
     private fun disconnect() {
+        if (disconnecting) return
         connecting = false
+        disconnecting = true
         connectToken++
         stopMonitoring()
+        refresh()
         Thread {
             runCatching { singBox.stop(); systemProxy.restore() }
-            SwingUtilities.invokeLater { connected = false; refresh() }
+            SwingUtilities.invokeLater {
+                connected = false
+                disconnecting = false
+                refresh()
+            }
         }.apply { isDaemon = true; start() }
     }
 
     private fun reconnectAfterModeChange() {
+        disconnecting = true
+        refresh()
         Thread {
             runCatching { singBox.stop(); systemProxy.restore() }
-            SwingUtilities.invokeLater { connected = false; stopMonitoring(); refresh() }
-            Thread.sleep(450)
-            SwingUtilities.invokeLater { connect() }
+            SwingUtilities.invokeLater {
+                connected = false
+                stopMonitoring()
+                refresh()
+            }
+            Thread.sleep(220)
+            SwingUtilities.invokeLater {
+                disconnecting = false
+                connect()
+            }
         }.apply { isDaemon = true; start() }
     }
 
@@ -1145,7 +1180,12 @@ class MayakDesktop(
             pingTestBtn.isEnabled = false
         }
         Thread {
-            val ms = latencyProbe.tcpLatencyMs(profile.host, profile.port)
+            // при активном VPN прямой замер уходит в тоннель и врёт (0/мусор),
+            // поэтому меряем реальную задержку до узла через clash API
+            val ms = if (connected)
+                latencyProbe.proxyLatencyMs(CLASH_PORT) ?: latencyProbe.tcpLatencyMs(profile.host, profile.port)
+            else
+                latencyProbe.tcpLatencyMs(profile.host, profile.port)
             SwingUtilities.invokeLater {
                 pinging = false
                 pingTestBtn.isEnabled = state.activeProfile != null
@@ -1237,10 +1277,24 @@ class MayakDesktop(
                     mainBtn.text = L.t("Отмена", "Cancel")
                 }
                 connected -> {
-                    hero.heroState = LighthouseHero.HeroState.ON
-                    statusDot.foreground = T.SUCCESS; statusText.foreground = T.SUCCESS
-                    statusText.text = L.t("Подключено", "Connected")
-                    mainBtn.text = L.t("Отключить", "Disconnect")
+                    if (disconnecting) {
+                        hero.heroState = LighthouseHero.HeroState.DISCONNECTING
+                        statusDot.foreground = T.WARN
+                        statusText.foreground = T.WARN
+                        statusText.text = L.t("Отключение…", "Disconnecting...")
+                        mainBtn.text = L.t("Отключение", "Disconnecting")
+                    } else {
+                        hero.heroState = LighthouseHero.HeroState.ON
+                        statusDot.foreground = T.SUCCESS; statusText.foreground = T.SUCCESS
+                        statusText.text = L.t("Подключено", "Connected")
+                        mainBtn.text = L.t("Отключить", "Disconnect")
+                    }
+                }
+                disconnecting -> {
+                    hero.heroState = LighthouseHero.HeroState.DISCONNECTING
+                    statusDot.foreground = T.WARN; statusText.foreground = T.WARN
+                    statusText.text = L.t("Отключение…", "Disconnecting...")
+                    mainBtn.text = L.t("Отключение", "Disconnecting")
                 }
                 else -> {
                     hero.heroState = LighthouseHero.HeroState.OFF
@@ -1249,10 +1303,10 @@ class MayakDesktop(
                     mainBtn.text = L.t("Подключить", "Connect")
                 }
             }
-            mainBtn.isEnabled = !registeringWarp
+            mainBtn.isEnabled = !registeringWarp && !disconnecting
             mainBtn.repaint()
 
-            val pulse = connected || connecting || registeringWarp
+            val pulse = connected || connecting || disconnecting || registeringWarp
             statusDot.pulsing = pulse
             if (pulse) { if (!pulseTimer.isRunning) pulseTimer.start() } else pulseTimer.stop()
 
@@ -1368,6 +1422,7 @@ class MayakDesktop(
         val status = when {
             registeringWarp -> L.t("регистрация WARP", "registering WARP")
             connecting -> L.t("подключение", "connecting")
+            disconnecting -> L.t("отключение", "disconnecting")
             connected -> L.t("подключено", "connected")
             else -> L.t("отключено", "disconnected")
         }
@@ -1375,7 +1430,7 @@ class MayakDesktop(
     }
 
     private fun trayToggleLabel(): String =
-        if (connected || connecting) L.t("Отключить", "Disconnect") else L.t("Подключить", "Connect")
+        if (connected || connecting || disconnecting) L.t("Отключить", "Disconnect") else L.t("Подключить", "Connect")
 
     private fun showError(msg: String) = SwingUtilities.invokeLater {
         JOptionPane.showMessageDialog(frame, msg, "Маяк", JOptionPane.ERROR_MESSAGE)
@@ -1556,7 +1611,7 @@ class MayakDesktop(
         }
         // 0 - пилюля на левой кнопке, 1 - на правой
         private var pillPos = 0f
-        private val pillAnim = HoverAnimator(this, 170) { pillPos = it }
+        private val pillAnim = HoverAnimator(this, 260) { pillPos = it }
         private fun styleToggle(t: JToggleButton) {
             t.isOpaque = false
             t.isContentAreaFilled = false
@@ -1578,7 +1633,7 @@ class MayakDesktop(
             g2.color = T.BG_INPUT
             g2.fillRoundRect(0, 0, width, height, 18, 18)
             val w2 = width / 2
-            val selX = 2 + (pillPos * w2).toInt()
+            val selX = 2 + Math.round(pillPos * w2)
             val pill = g2.create(selX, 2, w2 - 4, height - 4) as Graphics2D
             try {
                 T.softFill(pill, w2 - 4, height - 4, T.ACCENT_HOVER, T.ACCENT, 16)

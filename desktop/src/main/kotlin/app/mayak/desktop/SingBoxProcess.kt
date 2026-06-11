@@ -1,6 +1,7 @@
 package app.mayak.desktop
 
 import java.net.InetSocketAddress
+import java.net.NetworkInterface
 import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -55,7 +56,7 @@ class SingBoxProcess(
         // graceful-сигнала нет), и WinTun удерживает адаптер tun0. Снимаем его заранее,
         // иначе первый `run` ~15с висит на "configure tun interface: file already exists",
         // прежде чем сработает ретрай. Если адаптера нет — это быстрый no-op.
-        if (tunMode && Platform.isWindows) cycleStaleTunAdapter()
+        if (tunMode && Platform.isWindows && hasTunAdapter()) cycleStaleTunAdapter()
 
         val timeout = if (tunMode) tunReadyTimeoutMs else readyTimeoutMs
         // On Linux, the kernel releases the TUN fd on process exit, so stale adapters
@@ -72,7 +73,7 @@ class SingBoxProcess(
             if (attempt > 0) {
                 // Запуск всё равно упал на stale tun0 — циклим адаптер ещё раз и пробуем.
                 cycleStaleTunAdapter()
-                Thread.sleep(1_200)
+                Thread.sleep(250)
             }
 
             process = ProcessBuilder(binary.toString(), "run", "-c", configFile.toString())
@@ -102,11 +103,11 @@ class SingBoxProcess(
             if (process?.isAlive != true) return false
             try {
                 Socket().use { s ->
-                    s.connect(InetSocketAddress(readyProbeHost, readyProbePort), 250)
+                    s.connect(InetSocketAddress(readyProbeHost, readyProbePort), 100)
                     return true
                 }
             } catch (_: Exception) {
-                Thread.sleep(80)
+                Thread.sleep(40)
             }
         }
         return false
@@ -209,20 +210,31 @@ class SingBoxProcess(
     }
 
     private fun killStaleSingBox(binary: Path) {
+        val target = binary.toAbsolutePath().normalize()
         runCatching {
-            if (Platform.isWindows) {
-                val escapedBinary = binary.toString().replace("'", "''")
-                ProcessBuilder("powershell", "-NoProfile", "-Command",
-                    "Get-Process -Name 'sing-box' -ErrorAction SilentlyContinue | " +
-                    "Where-Object { \$_.Path -eq '$escapedBinary' } | " +
-                    "Stop-Process -Force"
-                ).start().waitFor(3, TimeUnit.SECONDS)
-            } else {
-                ProcessBuilder("pkill", "-f", binary.toString())
-                    .start().waitFor(3, TimeUnit.SECONDS)
+            ProcessHandle.allProcesses().use { processes ->
+                processes
+                    .filter { handle ->
+                        handle.info().command().orElse(null)?.let { command ->
+                            runCatching {
+                                Path.of(command).toAbsolutePath().normalize() == target
+                            }.getOrDefault(false)
+                        } == true
+                    }
+                    .forEach { handle ->
+                        handle.destroyForcibly()
+                        runCatching { handle.onExit().get(2, TimeUnit.SECONDS) }
+                    }
             }
         }
     }
+
+    private fun hasTunAdapter(): Boolean = runCatching {
+        NetworkInterface.getNetworkInterfaces()?.toList()?.any {
+            it.name.equals("tun0", ignoreCase = true) ||
+                it.displayName.equals("tun0", ignoreCase = true)
+        } == true
+    }.getOrDefault(false)
 
     private fun cycleStaleTunAdapter() {
         if (!Platform.isWindows) return

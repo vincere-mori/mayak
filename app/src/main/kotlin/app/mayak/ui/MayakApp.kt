@@ -21,11 +21,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Key
 import androidx.compose.material.icons.outlined.PowerSettingsNew
@@ -111,7 +116,8 @@ fun MayakApp(
             onDeleteSubscription = viewModel::deleteSubscription,
             onPingSubscription = viewModel::pingSubscription,
             onPingServer = viewModel::pingServer,
-            onSaveRouting = viewModel::saveRoutingSettings
+            onSaveRouting = viewModel::saveRoutingSettings,
+            onJournalEnabledChanged = viewModel::setJournalEnabled
         )
     }
 }
@@ -135,7 +141,8 @@ private fun MayakScreen(
     onDeleteSubscription: (String) -> Unit,
     onPingSubscription: (Subscription) -> Unit,
     onPingServer: (ProxyProfile) -> Unit,
-    onSaveRouting: (RoutingSettings) -> Unit
+    onSaveRouting: (RoutingSettings) -> Unit,
+    onJournalEnabledChanged: (Boolean) -> Unit
 ) {
     Scaffold(
         modifier = Modifier.mayakBackground(),
@@ -192,6 +199,12 @@ private fun MayakScreen(
                 onPingServer = onPingServer,
                 onSelectProfile = onSelectProfile
             )
+            MayakTab.Journal -> JournalTab(
+                state = state,
+                padding = padding,
+                onExportJournal = onExportLogs,
+                onJournalEnabledChanged = onJournalEnabledChanged
+            )
             MayakTab.Settings -> SettingsTab(
                 state = state,
                 padding = padding,
@@ -224,6 +237,7 @@ private fun HomeTab(
             LighthouseHero(
                 connected = state.status == VpnStatus.Connected,
                 connecting = state.status == VpnStatus.Connecting,
+                disconnecting = state.status == VpnStatus.Disconnecting,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(240.dp)
@@ -262,11 +276,16 @@ private fun HomeTab(
 
 @Composable
 private fun StatusRow(status: VpnStatus, text: String) {
-    val color = when (status) {
+    val targetColor = when (status) {
         VpnStatus.Connected -> MayakColors.Success
         VpnStatus.Connecting, VpnStatus.Disconnecting -> MayakColors.Warn
         VpnStatus.Disconnected -> MayakColors.Muted
     }
+    val color by animateColorAsState(
+        targetValue = targetColor,
+        animationSpec = tween(durationMillis = 320),
+        label = "connection-status-color"
+    )
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
@@ -291,11 +310,16 @@ private fun ConnectButton(
     onDisconnect: () -> Unit,
     onAddProfile: () -> Unit
 ) {
-    val container = when {
+    val targetContainer = when {
         state.status == VpnStatus.Connected -> MayakColors.Danger
         state.status == VpnStatus.Connecting || state.status == VpnStatus.Disconnecting -> MayakColors.Warn
         else -> MayakColors.Accent
     }
+    val container by animateColorAsState(
+        targetValue = targetContainer,
+        animationSpec = tween(durationMillis = 320),
+        label = "connect-button-color"
+    )
     Button(
         onClick = {
             if (state.activeProfile == null) {
@@ -520,6 +544,80 @@ private fun ProfileRow(
             }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Outlined.Delete, contentDescription = "Удалить")
+            }
+        }
+    }
+}
+
+@Composable
+private fun JournalTab(
+    state: MayakUiState,
+    padding: PaddingValues,
+    onExportJournal: () -> Unit,
+    onJournalEnabledChanged: (Boolean) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Card(shape = MaterialTheme.shapes.large) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Журнал", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (state.journal.enabled) "Приложение пишет runtime- и VPN-логи" else "Логирование полностью выключено",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        Switch(
+                            checked = state.journal.enabled,
+                            onCheckedChange = onJournalEnabledChanged
+                        )
+                    }
+                    OutlinedButton(onClick = onExportJournal, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Outlined.CloudDownload, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Скачать лог файлом")
+                    }
+                    state.journal.exportedPath?.let { path ->
+                        Text(
+                            "Файл сохранён: $path",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        }
+        item {
+            Card(shape = MaterialTheme.shapes.large) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text("Последние записи", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(12.dp))
+                    val journalScroll = rememberScrollState()
+                    Text(
+                        text = state.journal.text.ifBlank { "Лог пока пуст" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(420.dp)
+                            .verticalScroll(journalScroll)
+                    )
+                }
             }
         }
     }
@@ -1098,6 +1196,7 @@ private fun MayakTab.icon(): ImageVector {
         MayakTab.Home -> Icons.Outlined.Home
         MayakTab.Profiles -> Icons.Outlined.Key
         MayakTab.Subscriptions -> Icons.Outlined.Public
+        MayakTab.Journal -> Icons.Outlined.Description
         MayakTab.Settings -> Icons.Outlined.Settings
     }
 }

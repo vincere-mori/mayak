@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.0.1
+
+- Smoothed Proxy/TUN mode switching and lighthouse connect/disconnect transitions.
+- Removed the dark shading from the lighthouse body in OFF mode.
+- Fixed WARP registration on new machines with current Cloudflare API headers, endpoint selection and reserved bytes.
+- Reduced desktop TUN startup overhead and switched the TUN stack to the faster system implementation.
+- Active connections now show real proxy latency through the sing-box Clash API instead of `0 ms`.
+- Android: added the journal screen, improved state animations and completed an API 35 visual/functionality pass.
+
 ## v1.0.0
 
 - Renamed the project to **Маяк** (Mayak). New application id `app.mayak`, new package namespace, renamed window titles, notifications, Quick Settings tile and installers.

@@ -30,9 +30,10 @@ import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import kotlinx.coroutines.isActive
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.sin
 
-private enum class LhState { OFF, CONNECTING, ON }
+private enum class LhState { OFF, CONNECTING, ON, DISCONNECTING }
 
 private data class LhStar(
     val nx: Float, val ny: Float, val size: Float,
@@ -62,9 +63,11 @@ private fun lerpC(a: Int, b: Int, t: Float): Float =
 fun LighthouseHero(
     connected: Boolean,
     connecting: Boolean,
+    disconnecting: Boolean,
     modifier: Modifier = Modifier
 ) {
     val heroState = when {
+        disconnecting -> LhState.DISCONNECTING
         connected -> LhState.ON
         connecting -> LhState.CONNECTING
         else -> LhState.OFF
@@ -78,6 +81,7 @@ fun LighthouseHero(
     var bulbColorTarget by remember { mutableFloatStateOf(0f) }
     var nextColorShift by remember { mutableLongStateOf(5000L) }
     var frameTime by remember { mutableLongStateOf(0L) }
+    var lightAlpha by remember { mutableFloatStateOf(0f) }
     val stars = remember { buildStars(70) }
 
     LaunchedEffect(Unit) {
@@ -85,19 +89,33 @@ fun LighthouseHero(
         while (isActive) {
             withFrameMillis { t ->
                 val hs = heroRef
-                // быстрый sweep только при подключении -> 30 fps, иначе ambient 20 fps
-                val minStep = if (hs == LhState.CONNECTING) 32L else 48L
+                val targetLight = when (hs) {
+                    LhState.OFF, LhState.DISCONNECTING -> 0f
+                    LhState.CONNECTING -> 0.62f
+                    LhState.ON -> 1f
+                }
+                val minStep = when {
+                    hs == LhState.CONNECTING || hs == LhState.DISCONNECTING -> 16L
+                    abs(lightAlpha - targetLight) > 0.01f -> 16L
+                    hs == LhState.ON -> 32L
+                    else -> 48L
+                }
                 if (t - lastFrame < minStep) return@withFrameMillis
                 val dt = if (lastFrame == 0L) minStep else t - lastFrame
                 lastFrame = t
                 frameTime = t
                 val k = dt / 32.0 // нормировка под разный fps, чтобы скорость не плавала
                 val targetSpeed = when (hs) {
-                    LhState.ON -> 0.024; LhState.CONNECTING -> 0.09; LhState.OFF -> 0.0
+                    LhState.ON -> 0.024
+                    LhState.CONNECTING -> 0.09
+                    LhState.OFF, LhState.DISCONNECTING -> 0.0
                 }
                 sweepSpeed += (targetSpeed - sweepSpeed) * 0.12 * k
                 sweepPhase += sweepSpeed * k
                 for (i in waveOffsets.indices) waveOffsets[i] += (0.70f + i * 0.24f) * k.toFloat()
+                val lightFactor = (if (targetLight < lightAlpha) 0.055f else 0.075f) * k.toFloat()
+                lightAlpha += (targetLight - lightAlpha) * lightFactor.coerceAtMost(1f)
+                if (lightAlpha < 0.004f) lightAlpha = 0f
                 if (hs == LhState.ON) {
                     if (t >= nextColorShift) {
                         bulbColorTarget = if (bulbColorTarget < 0.5f) 0.9f else 0f
@@ -146,12 +164,22 @@ fun LighthouseHero(
             onDrawBehind {
                 drawImage(skyLayer)
                 drawLhStars(stars, w, horizonY, frameTime)
-                if (heroState != LhState.OFF) {
-                    drawLhBeam(cx, bulbCy, w, horizonY, sweepPhase.toFloat(), heroState, bulbColorT, frameTime)
+                if (lightAlpha > 0.01f) {
+                    drawLhBeam(
+                        cx,
+                        bulbCy,
+                        w,
+                        horizonY,
+                        sweepPhase.toFloat(),
+                        heroState,
+                        bulbColorT,
+                        frameTime,
+                        lightAlpha
+                    )
                 }
                 drawLhSea(w, h, horizonY, waveOffsets)
                 drawImage(towerLayer)
-                drawLhBulbGlow(cx, bulbCy, heroState, bulbColorT, frameTime)
+                drawLhBulbGlow(cx, bulbCy, heroState, bulbColorT, frameTime, lightAlpha)
                 drawImage(cliffLayer)
             }
         }
@@ -204,13 +232,14 @@ private fun DrawScope.drawLhStars(stars: List<LhStar>, w: Float, horizonY: Float
 
 private fun DrawScope.drawLhBeam(
     cx: Float, cy: Float, w: Float, horizonY: Float,
-    sweepPhase: Float, state: LhState, bulbColorT: Float, time: Long
+    sweepPhase: Float, state: LhState, bulbColorT: Float, time: Long, lightAlpha: Float
 ) {
-    val visibility = when (state) {
-        LhState.ON -> 1f
-        LhState.CONNECTING -> (0.45f + sin(time / 130.0) * 0.35f).toFloat().coerceIn(0f, 1f)
-        LhState.OFF -> 0f
+    val pulse = if (state == LhState.CONNECTING) {
+        (0.72f + sin(time / 130.0).toFloat() * 0.28f).coerceIn(0f, 1f)
+    } else {
+        1f
     }
+    val visibility = lightAlpha * pulse
     if (visibility <= 0.01f) return
 
     val warmth = if (state == LhState.CONNECTING) 1f else bulbColorT
@@ -295,21 +324,15 @@ private fun DrawScope.drawLhLighthouse(
     val plinth2Y = plinthY - plinth2H
     drawRoundRect(Color(0xFF303E6C), topLeft = Offset(cx - plinth2W / 2f, plinth2Y), size = Size(plinth2W, plinth2H), cornerRadius = CornerRadius(6f))
 
-    val doorW = bottomW * 0.16f
-    val doorH = plinth2H * 0.9f
-    drawRoundRect(Color(0xFF1C2650), topLeft = Offset(cx - doorW / 2f, plinth2Y - doorH + plinth2H * 0.4f), size = Size(doorW, doorH), cornerRadius = CornerRadius(4f))
-
     val towerPath = Path().apply {
         moveTo(cx - topW / 2f, towerTopY); lineTo(cx + topW / 2f, towerTopY)
         lineTo(cx + bottomW / 2f, tbY); lineTo(cx - bottomW / 2f, tbY); close()
     }
     drawPath(
         path = towerPath,
-        brush = Brush.horizontalGradient(
-            colors = listOf(Color(0xFFF8FAFF), Color(0xFFC8D4F0)),
-            startX = cx - bottomW / 2f, endX = cx + bottomW / 2f
-        )
+        color = Color(0xFFF6F8FC)
     )
+    drawPath(towerPath, color = Color(0x5AB9C6E1), style = Stroke(1f))
 
     val bandColors = listOf(Color(0xFF3C6EE6), Color(0xFFDC4650), Color(0xFF3C6EE6))
     for (i in bandColors.indices) {
@@ -380,16 +403,24 @@ private fun DrawScope.drawLhLighthouse(
     drawLine(Color(0xFFB4C3E6), start = Offset(cx, ballY + ballR * 2f), end = Offset(cx, lantTopY - roofH), strokeWidth = 1.2f)
 }
 
-private fun DrawScope.drawLhBulbGlow(cx: Float, cy: Float, state: LhState, bulbColorT: Float, time: Long) {
-    val onAlpha = when (state) {
-        LhState.ON -> 1f
-        LhState.CONNECTING -> (0.65f + sin(time / 180.0).toFloat() * 0.3f).coerceIn(0f, 1f)
-        LhState.OFF -> (0.10f + sin(time / 2400.0).toFloat() * 0.06f).coerceIn(0.04f, 0.18f)
+private fun DrawScope.drawLhBulbGlow(
+    cx: Float,
+    cy: Float,
+    state: LhState,
+    bulbColorT: Float,
+    time: Long,
+    lightAlpha: Float
+) {
+    val pulseAlpha = if (state == LhState.CONNECTING) {
+        (0.72f + sin(time / 180.0).toFloat() * 0.28f).coerceIn(0f, 1f)
+    } else {
+        1f
     }
+    val onAlpha = (0.08f + lightAlpha * 0.92f) * pulseAlpha
     val pulse = when (state) {
         LhState.ON -> 1f + sin(time / 900.0).toFloat() * 0.07f
         LhState.CONNECTING -> 1f + sin(time / 180.0).toFloat() * 0.11f
-        LhState.OFF -> 1f
+        LhState.OFF, LhState.DISCONNECTING -> 1f
     }
     val bulbR = (7f * pulse).coerceAtLeast(4f)
     val t = bulbColorT

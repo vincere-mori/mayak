@@ -22,6 +22,7 @@ import androidx.core.app.NotificationCompat
 import androidx.annotation.RequiresApi
 import app.mayak.BuildConfig
 import app.mayak.R
+import app.mayak.log.AppJournal
 import io.nekohasekai.libbox.CommandServer
 import io.nekohasekai.libbox.CommandServerHandler
 import io.nekohasekai.libbox.ConnectionOwner
@@ -107,6 +108,11 @@ class MayakVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         super.onRevoke()
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        AppJournal.warn(TAG, "onTaskRemoved")
+        super.onTaskRemoved(rootIntent)
+    }
+
     private suspend fun connect(configJson: String) = transitionMutex.withLock {
         if (configJson.isBlank()) {
             disconnectInternal("конфиг пустой")
@@ -115,6 +121,7 @@ class MayakVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
         updateState(VpnConnectionState(VpnStatus.Connecting))
         registerNetworkCallbackIfNeeded()
+        logActiveNetwork("before-connect")
         withContext(Dispatchers.Main) {
             showForeground("Подключение")
         }
@@ -149,6 +156,7 @@ class MayakVpnService : VpnService(), PlatformInterface, CommandServerHandler {
 
         runCatching { tunDescriptor?.close() }
         tunDescriptor = null
+        logActiveNetwork("after-disconnect-close")
 
         withContext(Dispatchers.Main) {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -191,6 +199,7 @@ class MayakVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     override fun openTun(options: TunOptions): Int {
         if (prepare(this) != null) error("android: missing vpn permission")
 
+        logActiveNetwork("before-establish")
         tunDescriptor?.close()
         val builder = Builder()
             .setSession("Маяк")
@@ -374,17 +383,36 @@ class MayakVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private fun registerNetworkCallbackIfNeeded() {
         if (networkCallback != null) return
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) = dispatchDefaultInterfaceUpdate()
-            override fun onLost(network: Network) = dispatchDefaultInterfaceUpdate(force = true)
+            override fun onAvailable(network: Network) {
+                AppJournal.info(TAG, "networkCallback onAvailable network=$network")
+                logNetwork(network, "onAvailable")
+                dispatchDefaultInterfaceUpdate()
+            }
+
+            override fun onLost(network: Network) {
+                AppJournal.warn(TAG, "networkCallback onLost network=$network")
+                dispatchDefaultInterfaceUpdate(force = true)
+            }
+
             override fun onCapabilitiesChanged(
                 network: Network,
                 networkCapabilities: NetworkCapabilities
-            ) = dispatchDefaultInterfaceUpdate()
+            ) {
+                AppJournal.info(TAG, "networkCallback onCapabilitiesChanged network=$network caps=${describeCapabilities(networkCapabilities)}")
+                dispatchDefaultInterfaceUpdate()
+            }
 
             override fun onLinkPropertiesChanged(
                 network: Network,
                 linkProperties: LinkProperties
-            ) = dispatchDefaultInterfaceUpdate()
+            ) {
+                AppJournal.info(TAG, "networkCallback onLinkPropertiesChanged network=$network link=${describeLinkProperties(linkProperties)}")
+                dispatchDefaultInterfaceUpdate()
+            }
+
+            override fun onUnavailable() {
+                AppJournal.warn(TAG, "networkCallback onUnavailable")
+            }
         }
         runCatching {
             connectivity.registerDefaultNetworkCallback(callback)
@@ -486,6 +514,48 @@ class MayakVpnService : VpnService(), PlatformInterface, CommandServerHandler {
     private fun updateState(state: VpnConnectionState) {
         MayakVpnEvents.update(state)
         MayakTileService.requestUpdate(this)
+    }
+
+    // диагностика сети в журнал: что за дефолтная сеть и её свойства на ключевых этапах
+    private fun logActiveNetwork(stage: String) {
+        val network = runCatching { connectivity.activeNetwork }.getOrNull()
+        if (network == null) {
+            AppJournal.warn(TAG, "$stage activeNetwork=null")
+            return
+        }
+        logNetwork(network, stage)
+    }
+
+    private fun logNetwork(network: Network, stage: String) {
+        val caps = runCatching { connectivity.getNetworkCapabilities(network) }.getOrNull()
+        val link = runCatching { connectivity.getLinkProperties(network) }.getOrNull()
+        AppJournal.info(
+            TAG,
+            "$stage network=$network caps=${caps?.let(::describeCapabilities) ?: "<none>"} link=${link?.let(::describeLinkProperties) ?: "<none>"}"
+        )
+    }
+
+    private fun describeCapabilities(caps: NetworkCapabilities): String {
+        val transports = buildList {
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) add("WIFI")
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) add("CELLULAR")
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) add("ETHERNET")
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) add("VPN")
+        }
+        val capabilities = buildList {
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) add("INTERNET")
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) add("VALIDATED")
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)) add("NOT_METERED")
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) add("NOT_VPN")
+        }
+        return "transports=${transports.joinToString()} capabilities=${capabilities.joinToString()} downstream=${caps.linkDownstreamBandwidthKbps} upstream=${caps.linkUpstreamBandwidthKbps}"
+    }
+
+    private fun describeLinkProperties(link: LinkProperties): String {
+        val dns = link.dnsServers.joinToString { it.hostAddress ?: it.toString() }
+        val routes = link.routes.joinToString { it.toString() }
+        val addresses = link.linkAddresses.joinToString { it.toString() }
+        return "iface=${link.interfaceName} addresses=[$addresses] dns=[$dns] routes=[$routes] domains=${link.domains}"
     }
 
     private fun showForeground(text: String) {

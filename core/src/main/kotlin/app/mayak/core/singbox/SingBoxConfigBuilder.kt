@@ -145,8 +145,6 @@ class SingBoxConfigBuilder(
             listOf("172.19.0.1/30")
         }
         val mtu = if (settings.platform == RoutingPlatform.Android) 1400 else 9000
-        val stack = if (settings.platform == RoutingPlatform.Android) "system" else "mixed"
-
         return buildJsonObject {
             put("type", "tun")
             put("tag", "tun-in")
@@ -154,7 +152,7 @@ class SingBoxConfigBuilder(
             put("mtu", mtu)
             put("auto_route", true)
             put("strict_route", true)
-            put("stack", stack)
+            put("stack", "system")
             // Required for Discord voice / WebRTC / online games — without it
             // sing-box looks like a symmetric NAT and STUN cannot pair peers.
             put("endpoint_independent_nat", true)

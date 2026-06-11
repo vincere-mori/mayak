@@ -9,5 +9,6 @@ data class MayakSettings(
     val dnsMode: DnsMode = DnsMode.Cloudflare,
     val customDnsServers: List<String> = emptyList(),
     val ipv6Enabled: Boolean = false,
+    val journalEnabled: Boolean = true,
     val routing: RoutingSettings = RoutingSettings.defaults()
 )

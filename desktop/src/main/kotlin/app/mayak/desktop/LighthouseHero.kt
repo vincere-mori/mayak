@@ -19,7 +19,7 @@ import kotlin.math.sin
 
 class LighthouseHero : JPanel() {
 
-    enum class HeroState { OFF, CONNECTING, ON }
+    enum class HeroState { OFF, CONNECTING, ON, DISCONNECTING }
 
     var heroState: HeroState = HeroState.OFF
         set(value) {
@@ -39,6 +39,7 @@ class LighthouseHero : JPanel() {
     private var nextShootingAt = System.currentTimeMillis() + 4000
 
     private var fogAlpha = 0f
+    private var lightAlpha = 0f
 
     // Bulb warm-color drift: 0 = cool blue-white, 1 = warm yellow
     private var bulbColorT      = 0f
@@ -63,7 +64,7 @@ class LighthouseHero : JPanel() {
         val targetSpeed = when (heroState) {
             HeroState.ON -> 0.012
             HeroState.CONNECTING -> 0.045
-            HeroState.OFF -> 0.0
+            HeroState.OFF, HeroState.DISCONNECTING -> 0.0
         } * speedScale
         sweepSpeed += (targetSpeed - sweepSpeed) * 0.06
         sweepPhase += sweepSpeed
@@ -77,11 +78,23 @@ class LighthouseHero : JPanel() {
         shootingStars.removeAll { it.tick() }
 
         val fogTarget = when (heroState) {
-            HeroState.OFF -> 0f
+            HeroState.OFF, HeroState.DISCONNECTING -> 0f
             HeroState.CONNECTING -> 0.50f
             HeroState.ON -> 1.0f
         }
-        fogAlpha += (fogTarget - fogAlpha) * 0.028f
+        // тьма поднимается плавно, но при отключении уходит быстрее, чтобы не «висела»
+        val fogFactor = if (fogTarget < fogAlpha) 0.085f else 0.05f
+        fogAlpha += (fogTarget - fogAlpha) * fogFactor
+        if (fogAlpha < 0.004f) fogAlpha = 0f
+
+        val lightTarget = when (heroState) {
+            HeroState.OFF, HeroState.DISCONNECTING -> 0f
+            HeroState.CONNECTING -> 0.62f
+            HeroState.ON -> 1f
+        }
+        val lightFactor = if (lightTarget < lightAlpha) 0.055f else 0.075f
+        lightAlpha += (lightTarget - lightAlpha) * lightFactor
+        if (lightAlpha < 0.004f) lightAlpha = 0f
 
         // Bulb color: slowly drifts to warm yellow and back when ON
         if (heroState == HeroState.ON) {
@@ -96,8 +109,8 @@ class LighthouseHero : JPanel() {
 
         // Adaptive frame rate: 60fps when active, ~30fps while fading, ~20fps when idle
         val targetDelay = when {
-            heroState != HeroState.OFF -> 16
-            fogAlpha > 0.01f || shootingStars.isNotEmpty() -> 33
+            heroState == HeroState.CONNECTING || heroState == HeroState.ON -> 16
+            lightAlpha > 0.01f || fogAlpha > 0.01f || shootingStars.isNotEmpty() -> 16
             else -> 50
         }
         if (timer.delay != targetDelay) timer.delay = targetDelay
@@ -107,9 +120,9 @@ class LighthouseHero : JPanel() {
 
     init {
         isOpaque = false
-        preferredSize = Dimension(700, 400)
+        preferredSize = Dimension(700, 430)
         minimumSize = Dimension(320, 200)
-        maximumSize = Dimension(Int.MAX_VALUE, 500)
+        maximumSize = Dimension(Int.MAX_VALUE, 560)
         timer.start()
     }
 
@@ -319,11 +332,12 @@ class LighthouseHero : JPanel() {
      * Blob layout comes from pre-computed companion arrays; no per-frame list/object allocation.
      */
     private fun drawAtmosphereGlow(g2: Graphics2D, cx: Int, cy: Int, w: Int, h: Int) {
-        val intensity = when (heroState) {
-            HeroState.ON -> 1.0f
-            HeroState.CONNECTING -> (0.55 + sin((System.currentTimeMillis() - stateChangedAt) / 240.0) * 0.25).toFloat()
-            HeroState.OFF -> 0.0f
+        val pulse = if (heroState == HeroState.CONNECTING) {
+            (0.78 + sin((System.currentTimeMillis() - stateChangedAt) / 240.0) * 0.22).toFloat()
+        } else {
+            1f
         }
+        val intensity = lightAlpha * pulse
         if (intensity <= 0.01f) return
 
         val oldComposite = g2.composite
@@ -356,11 +370,12 @@ class LighthouseHero : JPanel() {
     }
 
     private fun drawBeam(g2: Graphics2D, originX: Int, originY: Int, w: Int, h: Int, horizonY: Int) {
-        val visibility = when (heroState) {
-            HeroState.ON -> 1.0f
-            HeroState.CONNECTING -> (0.45 + sin((System.currentTimeMillis() - stateChangedAt) / 130.0) * 0.35).toFloat()
-            HeroState.OFF -> 0.0f
+        val pulse = if (heroState == HeroState.CONNECTING) {
+            (0.72 + sin((System.currentTimeMillis() - stateChangedAt) / 130.0) * 0.28).toFloat()
+        } else {
+            1f
         }
+        val visibility = lightAlpha * pulse
         if (visibility <= 0.01f) return
 
         val warmth = if (heroState == HeroState.CONNECTING) 1f else bulbColorT
@@ -602,11 +617,7 @@ class LighthouseHero : JPanel() {
         )
         g2.fillOval((baseX - shadowW / 2).toInt(), pierY - 2, shadowW.toInt(), shadowH.toInt())
 
-        val ambientAlpha = when (heroState) {
-            HeroState.ON -> 0.13f
-            HeroState.CONNECTING -> 0.09f
-            HeroState.OFF -> 0.05f
-        }
+        val ambientAlpha = 0.04f + lightAlpha * 0.09f
         val ambientColor = if (heroState == HeroState.CONNECTING) Color(255, 210, 100) else Color(90, 160, 230)
         g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, ambientAlpha)
         g2.paint = RadialGradientPaint(
@@ -689,12 +700,9 @@ class LighthouseHero : JPanel() {
         towerPath.lineTo((baseX + bottomW / 2).toDouble(), tbY)
         towerPath.lineTo((baseX - bottomW / 2).toDouble(), tbY)
         towerPath.closePath()
-        g2.paint = GradientPaint(
-            (baseX - bottomW / 2f), 0f, Color(248, 250, 255),
-            (baseX + bottomW / 2f), 0f, Color(200, 212, 240)
-        )
+        g2.color = Color(246, 248, 252)
         g2.fill(towerPath)
-        g2.color = Color(80, 100, 160, 80); g2.stroke = BasicStroke(1f); g2.draw(towerPath)
+        g2.color = Color(185, 198, 225, 90); g2.stroke = BasicStroke(1f); g2.draw(towerPath)
 
         val bands = 3
         for (i in 0 until bands) {
@@ -710,11 +718,6 @@ class LighthouseHero : JPanel() {
                 l.toFloat(), (y + bh / 2).toFloat(), color.darker())
             g2.fillRoundRect(l, y - bh / 2, r - l, bh, 5, 5)
         }
-
-        val doorW = (bottomW * 0.16).toInt()
-        val doorH = (plinth2H * 0.9).toInt()
-        g2.color = Color(28, 38, 80)
-        g2.fillRoundRect(baseX - doorW / 2, plinth2Y - doorH + (plinth2H * 0.4).toInt(), doorW, doorH, 4, 4)
 
         val galleryW = (topW * 1.7).toInt()
         val galleryH = (towerH * 0.045).toInt()
@@ -779,17 +782,18 @@ class LighthouseHero : JPanel() {
         val now  = System.currentTimeMillis()
         val warm = heroState == HeroState.CONNECTING
 
-        val onAlpha = when (heroState) {
-            HeroState.ON         -> 1f
-            HeroState.CONNECTING -> (0.65f + sin((now - stateChangedAt) / 180.0).toFloat() * 0.3f).coerceIn(0f, 1f)
-            HeroState.OFF        -> (0.10f + sin(now / 2400.0).toFloat() * 0.06f).coerceIn(0.04f, 0.18f)
+        val pulseAlpha = if (heroState == HeroState.CONNECTING) {
+            (0.72f + sin((now - stateChangedAt) / 180.0).toFloat() * 0.28f).coerceIn(0f, 1f)
+        } else {
+            1f
         }
+        val onAlpha = (0.08f + lightAlpha * 0.92f) * pulseAlpha
 
         // Float pulse — no toInt() so radius is smooth, no discrete pixel jumps
         val pulse = when (heroState) {
             HeroState.ON         -> 1.0f + sin(now / 900.0).toFloat() * 0.07f
             HeroState.CONNECTING -> 1.0f + sin((now - stateChangedAt) / 180.0).toFloat() * 0.11f
-            HeroState.OFF        -> 1.0f + sin(now / 2400.0).toFloat() * 0.04f
+            HeroState.OFF, HeroState.DISCONNECTING -> 1.0f
         }
         val bulbR  = (7f * pulse).coerceAtLeast(4f)   // Float — drawn via Ellipse2D.Float
         val haloR  = bulbR * 4f
@@ -829,11 +833,7 @@ class LighthouseHero : JPanel() {
      * Faint vertical reflection of the lighthouse tower in the water.
      */
     private fun drawLighthouseReflection(g2: Graphics2D, baseX: Int, horizonY: Int, towerH: Int) {
-        val reflAlpha = when (heroState) {
-            HeroState.ON -> 0.18f
-            HeroState.CONNECTING -> 0.12f
-            HeroState.OFF -> 0.08f
-        }
+        val reflAlpha = 0.05f + lightAlpha * 0.13f
         val old = g2.composite
         g2.composite = AlphaComposite.getInstance(AlphaComposite.SRC_OVER, reflAlpha)
 
@@ -855,9 +855,13 @@ class LighthouseHero : JPanel() {
         )
         g2.fill(reflPath)
 
-        if (heroState != HeroState.OFF) {
+        if (lightAlpha > 0.02f) {
             val halo = if (heroState == HeroState.CONNECTING) Color(255, 210, 100) else Color(120, 200, 255)
             val gr = (towerH * 0.06).toInt()
+            g2.composite = AlphaComposite.getInstance(
+                AlphaComposite.SRC_OVER,
+                (lightAlpha * 0.8f).coerceIn(0f, 1f)
+            )
             g2.paint = RadialGradientPaint(
                 baseX.toFloat(), (reflTopY + 2).toFloat(), gr.toFloat(),
                 floatArrayOf(0f, 1f),
@@ -968,11 +972,17 @@ class LighthouseHero : JPanel() {
 
     private fun generateStars(n: Int): List<Star> {
         val r = java.util.Random(42)
+        // маяк стоит по центру: не сыпем звёзды в его вертикальную колонку,
+        // иначе они «сидят» на крыше/башне и выглядят как артефакт
+        fun inLighthouseColumn(x: Double, y: Double) = x in 0.44..0.56 && y in 0.46..0.98
         return (0 until n).map {
             val brightness = r.nextDouble()
+            var sx = r.nextDouble()
+            var sy = r.nextDouble()
+            while (inLighthouseColumn(sx, sy)) { sx = r.nextDouble(); sy = r.nextDouble() }
             Star(
-                x = r.nextDouble(),
-                y = r.nextDouble(),
+                x = sx,
+                y = sy,
                 size = if (brightness > 0.92) 3 else if (brightness > 0.7) 2 else 1,
                 baseAlpha = 0.35 + brightness * 0.65,
                 phase = (r.nextDouble() * 3000).toLong(),

@@ -22,6 +22,7 @@ import app.mayak.data.MayakSettings
 import app.mayak.data.ProfileRepository
 import app.mayak.log.AppJournal
 import app.mayak.data.SharedPrefsProfileRepository
+import app.mayak.ui.JournalUi
 import app.mayak.ui.MayakTab
 import app.mayak.ui.MayakUiState
 import app.mayak.ui.ConnectionStatusText
@@ -63,6 +64,7 @@ class MainViewModel(
 
     private val pingResults = MutableStateFlow<Map<String, Long?>>(emptyMap())
     private val pingingIds = MutableStateFlow<Set<String>>(emptySet())
+    private val lastExportedLogPath = MutableStateFlow<String?>(null)
 
     private val profileSnapshot = combine(
         repository.observeProfiles(),
@@ -100,12 +102,17 @@ class MainViewModel(
         PingSnapshot(results, pinging)
     }
 
+    private val journalInputs = combine(AppJournal.logs, lastExportedLogPath) { text, exportedPath ->
+        JournalUi(text = text, exportedPath = exportedPath)
+    }
+
     val state: StateFlow<MayakUiState> = combine(
         profileSnapshot,
         uiInputs,
         pingSnapshot,
-        traffic
-    ) { snapshot, inputs, ping, trafficSample ->
+        traffic,
+        journalInputs
+    ) { snapshot, inputs, ping, trafficSample, journal ->
         MayakUiState(
             selectedTab = inputs.selectedTab,
             profiles = snapshot.profiles,
@@ -120,7 +127,8 @@ class MainViewModel(
             trafficUpBytesPerSec = trafficSample.up,
             trafficDownBytesPerSec = trafficSample.down,
             pingResults = ping.results,
-            pingingIds = ping.pinging
+            pingingIds = ping.pinging,
+            journal = journal.copy(enabled = snapshot.settings.journalEnabled)
         )
     }.stateIn(
         scope = viewModelScope,
@@ -130,12 +138,20 @@ class MainViewModel(
 
     init {
         viewModelScope.launch {
+            AppJournal.setEnabled(repository.currentSettings().journalEnabled)
             vpnGateway.observeState().collectLatest { vpnState ->
                 if (vpnState.status == VpnStatus.Connected) {
                     monitorTraffic()
                 } else {
                     traffic.value = TrafficSample()
                 }
+            }
+        }
+        // подтягивает в журнал записи сервиса и sing-box, пишущих из другого процесса
+        viewModelScope.launch {
+            while (currentCoroutineContext().isActive) {
+                AppJournal.refreshFromDisk()
+                delay(1_000)
             }
         }
     }
@@ -220,7 +236,15 @@ class MainViewModel(
         pingingIds.value = pingingIds.value + profile.id
         viewModelScope.launch {
             val ms = withContext(Dispatchers.IO) {
-                latencyProbe.tcpLatencyMs(profile.host, profile.port)
+                if (
+                    state.value.status == VpnStatus.Connected &&
+                    state.value.activeProfile?.id == profile.id
+                ) {
+                    latencyProbe.proxyLatencyMs(CONTROLLER_PORT)
+                        ?: latencyProbe.tcpLatencyMs(profile.host, profile.port)
+                } else {
+                    latencyProbe.tcpLatencyMs(profile.host, profile.port)
+                }
             }
             pingResults.value = pingResults.value + (profile.id to ms)
             pingingIds.value = pingingIds.value - profile.id
@@ -271,7 +295,18 @@ class MainViewModel(
     fun exportLogsTo(uri: Uri, contentResolver: ContentResolver) {
         viewModelScope.launch {
             AppJournal.exportToUri(contentResolver, uri)
+                .onSuccess { lastExportedLogPath.value = uri.toString() }
                 .onFailure { lastError.value = it.message ?: "не удалось сохранить логи" }
+        }
+    }
+
+    fun setJournalEnabled(enabled: Boolean) {
+        runAction {
+            val current = repository.currentSettings()
+            if (current.journalEnabled == enabled) return@runAction
+            // напрямую, мимо saveSettings: переключение журнала не требует переподключения VPN
+            repository.updateSettings(current.copy(journalEnabled = enabled))
+            AppJournal.setEnabled(enabled)
         }
     }
 
@@ -355,6 +390,10 @@ class MainViewModel(
                 }
             busy.value = false
         }
+    }
+
+    private companion object {
+        const val CONTROLLER_PORT = 9095
     }
 
     private data class ProfileSnapshot(

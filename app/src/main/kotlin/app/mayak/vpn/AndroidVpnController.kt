@@ -5,6 +5,7 @@ import app.mayak.core.singbox.RoutingPlatform
 import app.mayak.core.singbox.SingBoxConfigBuilder
 import app.mayak.core.singbox.SingBoxConfigSettings
 import app.mayak.data.SharedPrefsProfileRepository
+import app.mayak.log.AppJournal
 
 object AndroidVpnController {
     suspend fun connect(context: Context) {
@@ -12,6 +13,7 @@ object AndroidVpnController {
         val repository = SharedPrefsProfileRepository(appContext)
         val profile = repository.currentActiveProfile()
             ?: throw IllegalStateException("сначала добавь ключ")
+        AppJournal.info("vpn-tile", "building config for quick toggle profile=${profile.name}")
         val settings = repository.currentSettings()
         val config = SingBoxConfigBuilder().build(
             profile = profile,
@@ -27,6 +29,7 @@ object AndroidVpnController {
     }
 
     suspend fun disconnect(context: Context) {
+        AppJournal.info("vpn-tile", "disconnect requested from quick toggle")
         SingBoxVpnGateway(context.applicationContext).disconnect()
     }
 }
