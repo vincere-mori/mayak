@@ -9,6 +9,7 @@ import java.awt.Graphics
 import java.awt.Graphics2D
 import java.awt.RadialGradientPaint
 import java.awt.RenderingHints
+import java.awt.event.HierarchyEvent
 import java.awt.geom.Ellipse2D
 import java.awt.geom.GeneralPath
 import java.awt.geom.Path2D
@@ -58,7 +59,10 @@ class LighthouseHero : JPanel() {
     private val rockPath      = GeneralPath()
     private val cliffPath     = GeneralPath()
 
-    private val timer: Timer = Timer(16) {
+    private val timer: Timer = Timer(16) { tick() }
+
+    private fun tick() {
+        if (!isShowing) return   // окно в трее/свёрнуто — не жжём кадры вхолостую
         val now = System.currentTimeMillis()
         val speedScale = animationSpeedScale()
         val targetSpeed = when (heroState) {
@@ -109,8 +113,9 @@ class LighthouseHero : JPanel() {
 
         // Adaptive frame rate: 60fps when active, ~30fps while fading, ~20fps when idle
         val targetDelay = when {
-            heroState == HeroState.CONNECTING || heroState == HeroState.ON -> 16
-            lightAlpha > 0.01f || fogAlpha > 0.01f || shootingStars.isNotEmpty() -> 16
+            heroState == HeroState.CONNECTING -> 16
+            heroState == HeroState.ON -> 33
+            lightAlpha > 0.01f || fogAlpha > 0.01f || shootingStars.isNotEmpty() -> 33
             else -> 50
         }
         if (timer.delay != targetDelay) timer.delay = targetDelay
@@ -123,6 +128,13 @@ class LighthouseHero : JPanel() {
         preferredSize = Dimension(700, 430)
         minimumSize = Dimension(320, 200)
         maximumSize = Dimension(Int.MAX_VALUE, 560)
+        // останавливаем таймер, как только панель уходит с экрана (трей, свёрнуто),
+        // не полагаясь на windowIconified — он на части Linux-WM не приходит
+        addHierarchyListener { e ->
+            if (e.changeFlags and HierarchyEvent.SHOWING_CHANGED.toLong() != 0L) {
+                if (isShowing) resumeAnimation() else pauseAnimation()
+            }
+        }
         timer.start()
     }
 
