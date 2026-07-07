@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.0.2
+
+- Desktop: cut CPU usage of the lighthouse animation — halved the frame rate while connected and stop it entirely when the window is hidden to tray or minimized.
+
 ## v1.0.1
 
 - Smoothed Proxy/TUN mode switching and lighthouse connect/disconnect transitions.
