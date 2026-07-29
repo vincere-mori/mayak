@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.0.3
+
+- Desktop: TUN connects noticeably faster. The stale `tun0` adapter is now cycled in the background right after disconnect instead of on the next connect, and the cleanup runs through `netsh` rather than a PowerShell cold start.
+- Desktop: startup is instrumented — a single `[Mayak] start …` line in the sing-box log shows where connect time went.
+- Desktop: the sing-box config is built on the worker thread, so a WARP endpoint that needs DNS no longer freezes the window; the elevation check is cached instead of shelling out on every connect.
+- DNS cache is persisted between core restarts, so the first page after connecting no longer waits for a fresh DoH handshake.
+- Android: system CA certificates are parsed once per process instead of on every connect, and the journal is read from disk only while its screen is open.
+
 ## v1.0.2
 
 - Desktop: cut CPU usage of the lighthouse animation — halved the frame rate while connected and stop it entirely when the window is hidden to tray or minimized.
