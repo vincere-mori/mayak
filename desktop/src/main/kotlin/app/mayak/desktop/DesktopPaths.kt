@@ -24,4 +24,5 @@ object DesktopPaths {
     val profilesFile: Path by lazy { appDir.resolve("profiles.json") }
     val configFile: Path by lazy { appDir.resolve("sing-box.json") }
     val logFile: Path by lazy { appDir.resolve("sing-box.log") }
+    val cacheFile: Path by lazy { appDir.resolve("cache.db") }
 }

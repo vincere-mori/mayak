@@ -28,9 +28,16 @@ class SingBoxProcess(
     // Поднимается, когда пользователь отменяет подключение во время старта, чтобы
     // start() не докручивал ретраи и не оставлял осиротевший sing-box.
     @Volatile private var stopRequested = false
+    // Чистка tun0 после force-kill едет фоном на дисконнекте, чтобы не держать UI.
+    // start() дожидается её, если пользователь переподключился сразу.
+    @Volatile private var tunCleanup: Thread? = null
+
+    // Метка «TUN поднимался, адаптер не чищен». Переживает краш Маяка, поэтому
+    // после падения следующий start() знает, что tun0 надо циклить.
+    private val tunDirtyFile: Path get() = configFile.resolveSibling("tun.dirty")
 
     init {
-        Runtime.getRuntime().addShutdownHook(Thread { stop() })
+        Runtime.getRuntime().addShutdownHook(Thread { stop(); awaitTunCleanup() })
     }
 
     val running: Boolean
@@ -39,24 +46,34 @@ class SingBoxProcess(
     fun start(configJson: String, tunMode: Boolean = false): Result<Unit> {
         if (running) stop()
         stopRequested = false
+        val phases = PhaseLog(tunMode)
 
         val binary = binaryLocator.locate()
             ?: return Result.failure(IllegalStateException("sing-box не найден"))
 
-        killStaleSingBox(binary)
+        // Фоновая чистка адаптера с прошлого дисконнекта могла ещё не закончиться.
+        phases.measure("await-cleanup") { awaitTunCleanup() }
+        phases.measure("kill-stale") { killStaleSingBox(binary) }
 
-        configFile.parent?.let { Files.createDirectories(it) }
-        rotateLogIfLarge()
-        writeConfig(configJson)
+        phases.measure("write-config") {
+            configFile.parent?.let { Files.createDirectories(it) }
+            rotateLogIfLarge()
+            writeConfig(configJson)
+        }
         // Раньше тут гонялся отдельный `sing-box check` на каждый запуск — это холодный
         // старт 44МБ бинаря (под антивирусом легко 2-5с). `run` валидирует конфиг сам и
         // пишет причину в лог, поэтому проверяем конфиг только если запуск реально упал.
 
         // На Windows наш stop() жёстко убивает sing-box (destroy() = TerminateProcess,
-        // graceful-сигнала нет), и WinTun удерживает адаптер tun0. Снимаем его заранее,
-        // иначе первый `run` ~15с висит на "configure tun interface: file already exists",
-        // прежде чем сработает ретрай. Если адаптера нет — это быстрый no-op.
-        if (tunMode && Platform.isWindows && hasTunAdapter()) cycleStaleTunAdapter()
+        // graceful-сигнала нет), и WinTun удерживает адаптер tun0. Обычно его снимает
+        // фоновая чистка на дисконнекте; сюда попадаем только если прошлый сеанс
+        // оборвался вместе с Маяком и метка осталась на диске.
+        if (tunMode && Platform.isWindows) {
+            if (Files.exists(tunDirtyFile) && hasTunAdapter()) {
+                phases.measure("cycle-tun") { cycleStaleTunAdapter() }
+            }
+            markTunDirty()
+        }
 
         val timeout = if (tunMode) tunReadyTimeoutMs else readyTimeoutMs
         // On Linux, the kernel releases the TUN fd on process exit, so stale adapters
@@ -72,16 +89,24 @@ class SingBoxProcess(
             }
             if (attempt > 0) {
                 // Запуск всё равно упал на stale tun0 — циклим адаптер ещё раз и пробуем.
-                cycleStaleTunAdapter()
-                Thread.sleep(250)
+                phases.measure("retry-cycle-tun") {
+                    cycleStaleTunAdapter()
+                    Thread.sleep(250)
+                }
             }
 
-            process = ProcessBuilder(binary.toString(), "run", "-c", configFile.toString())
-                .redirectErrorStream(true)
-                .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()))
-                .start()
+            phases.measure("spawn") {
+                process = ProcessBuilder(binary.toString(), "run", "-c", configFile.toString())
+                    .redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()))
+                    .start()
+            }
 
-            if (waitUntilReady(timeout)) return Result.success(Unit)
+            val ready = phases.measure("ready") { waitUntilReady(timeout) }
+            if (ready) {
+                appendLog(phases.render())
+                return Result.success(Unit)
+            }
 
             lastError = IllegalStateException(
                 "sing-box не запустился (попытка ${attempt + 1}/$attempts): " +
@@ -89,6 +114,7 @@ class SingBoxProcess(
             )
             abortLastProcess()
         }
+        appendLog(phases.render())
 
         // Запуск упал, а в логе нет явной FATAL/ERROR — спросим у `check`, что не так
         // с конфигом (он ещё на диске), чтобы показать пользователю точную причину.
@@ -103,11 +129,11 @@ class SingBoxProcess(
             if (process?.isAlive != true) return false
             try {
                 Socket().use { s ->
-                    s.connect(InetSocketAddress(readyProbeHost, readyProbePort), 100)
+                    s.connect(InetSocketAddress(readyProbeHost, readyProbePort), 60)
                     return true
                 }
             } catch (_: Exception) {
-                Thread.sleep(40)
+                Thread.sleep(20)
             }
         }
         return false
@@ -191,8 +217,33 @@ class SingBoxProcess(
 
     fun stop() {
         stopRequested = true
+        val tunLeftBehind = Platform.isWindows && Files.exists(tunDirtyFile)
         abortLastProcess()
         deleteConfig()
+        // Снимаем tun0 здесь, а не на следующем старте: дисконнект уже отрисован,
+        // и эти пара секунд никто не ждёт, в отличие от подключения.
+        if (tunLeftBehind) scheduleTunCleanup()
+    }
+
+    private fun scheduleTunCleanup() {
+        awaitTunCleanup()
+        tunCleanup = Thread {
+            cycleStaleTunAdapter()
+            runCatching { Files.deleteIfExists(tunDirtyFile) }
+        }.apply { isDaemon = true; start() }
+    }
+
+    private fun awaitTunCleanup() {
+        val worker = tunCleanup ?: return
+        runCatching { worker.join(TUN_CLEANUP_JOIN_MS) }
+        tunCleanup = null
+    }
+
+    private fun markTunDirty() {
+        runCatching {
+            tunDirtyFile.parent?.let { Files.createDirectories(it) }
+            Files.writeString(tunDirtyFile, "", StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)
+        }
     }
 
     private fun abortLastProcess() {
@@ -236,15 +287,17 @@ class SingBoxProcess(
         } == true
     }.getOrDefault(false)
 
+    // netsh вместо powershell: делают они одно и то же, но холодный старт powershell
+    // с автозагрузкой модуля NetAdapter — это ~2с против ~0.3с у netsh.
     private fun cycleStaleTunAdapter() {
         if (!Platform.isWindows) return
+        setTunAdapterAdmin("disabled")
+        setTunAdapterAdmin("enabled")
+    }
+
+    private fun setTunAdapterAdmin(admin: String) {
         runCatching {
-            ProcessBuilder(
-                "powershell", "-NoProfile", "-Command",
-                "Get-NetAdapter -Name 'tun0' -ErrorAction SilentlyContinue | " +
-                    "ForEach-Object { Disable-NetAdapter -Name \$_.Name -Confirm:\$false; " +
-                    "Enable-NetAdapter -Name \$_.Name -Confirm:\$false }"
-            )
+            ProcessBuilder("netsh", "interface", "set", "interface", "name=tun0", "admin=$admin")
                 .redirectErrorStream(true)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile.toFile()))
                 .start()
@@ -254,5 +307,28 @@ class SingBoxProcess(
 
     private fun deleteConfig() {
         runCatching { Files.deleteIfExists(configFile) }
+    }
+
+    // Сколько на какую фазу ушло — одной строкой в конце, чтобы не мешать выводу sing-box.
+    private class PhaseLog(private val tunMode: Boolean) {
+        private val startedAt = System.currentTimeMillis()
+        private val phases = mutableListOf<String>()
+
+        fun <T> measure(name: String, block: () -> T): T {
+            val t0 = System.currentTimeMillis()
+            try {
+                return block()
+            } finally {
+                phases += "$name=${System.currentTimeMillis() - t0}"
+            }
+        }
+
+        fun render(): String =
+            "[Mayak] start tun=$tunMode total=${System.currentTimeMillis() - startedAt}ms " +
+                phases.joinToString(" ")
+    }
+
+    private companion object {
+        const val TUN_CLEANUP_JOIN_MS = 8_000L
     }
 }

@@ -1070,28 +1070,34 @@ class MayakDesktop(
         refresh()
         val token = ++connectToken
 
-        val config = configBuilder.build(
-            profile = profile,
-            settings = SingBoxConfigSettings(
-                dnsMode = state.dnsMode, ipv6Enabled = state.ipv6Enabled,
-                inboundMode = state.inboundMode, mixedListenPort = PROXY_PORT,
-                clashApiPort = CLASH_PORT,
-                warpEnabled = state.warpEnabled && hasUsableWarpCredentials(),
-                warpPrivateKey = warp?.privateKey ?: "",
-                warpLocalAddressV4 = warp?.localAddressV4 ?: "",
-                warpLocalAddressV6 = warp?.localAddressV6 ?: "",
-                warpPeerPublicKey = warp?.peerPublicKey ?: "",
-                warpEndpoint = warp?.endpoint?.let { WarpManager.resolveEndpoint(it) } ?: "",
-                warpReserved = warp?.reserved ?: listOf(0, 0, 0),
-                routing = state.routing.ensureDefaults(),
-                platform = RoutingPlatform.Desktop
-            )
-        )
+        val snapshot = state
+        val warpUsable = hasUsableWarpCredentials()
 
         Thread {
-            val result = singBox.start(config, tunMode = state.inboundMode == InboundMode.Tun)
+            // Конфиг собираем здесь, а не в EDT: resolveEndpoint при доменном
+            // WARP-эндпоинте уходит в DNS и подвешивает окно на время резолва.
+            val config = configBuilder.build(
+                profile = profile,
+                settings = SingBoxConfigSettings(
+                    dnsMode = snapshot.dnsMode, ipv6Enabled = snapshot.ipv6Enabled,
+                    inboundMode = snapshot.inboundMode, mixedListenPort = PROXY_PORT,
+                    clashApiPort = CLASH_PORT,
+                    cacheFilePath = DesktopPaths.cacheFile.toString(),
+                    warpEnabled = snapshot.warpEnabled && warpUsable,
+                    warpPrivateKey = warp?.privateKey ?: "",
+                    warpLocalAddressV4 = warp?.localAddressV4 ?: "",
+                    warpLocalAddressV6 = warp?.localAddressV6 ?: "",
+                    warpPeerPublicKey = warp?.peerPublicKey ?: "",
+                    warpEndpoint = warp?.endpoint?.let { WarpManager.resolveEndpoint(it) } ?: "",
+                    warpReserved = warp?.reserved ?: listOf(0, 0, 0),
+                    routing = snapshot.routing.ensureDefaults(),
+                    platform = RoutingPlatform.Desktop
+                )
+            )
+
+            val result = singBox.start(config, tunMode = snapshot.inboundMode == InboundMode.Tun)
             val error = if (result.isSuccess) {
-                if (state.inboundMode == InboundMode.Mixed)
+                if (snapshot.inboundMode == InboundMode.Mixed)
                     runCatching { systemProxy.enable(PROXY_PORT) }
                         .onFailure { singBox.stop() }.exceptionOrNull()
                 else null
@@ -1441,7 +1447,13 @@ class MayakDesktop(
         return creds.privateKey.isNotBlank() && creds.localAddressV4.isNotBlank()
     }
 
-    private fun isElevated() = runCatching {
+    // `net session` стоит ~70мс и дёргается на каждый коннект из EDT, а права
+    // процесса без перезапуска не меняются — считаем один раз.
+    private val elevated: Boolean by lazy { checkElevated() }
+
+    private fun isElevated() = elevated
+
+    private fun checkElevated() = runCatching {
         if (Platform.isWindows) {
             ProcessBuilder("cmd", "/c", "net session >nul 2>&1").start().waitFor() == 0
         } else if (Platform.isMac) {

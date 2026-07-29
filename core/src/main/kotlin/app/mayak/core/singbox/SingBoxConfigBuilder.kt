@@ -51,6 +51,14 @@ class SingBoxConfigBuilder(
                     put("external_controller", "127.0.0.1:${settings.clashApiPort}")
                     put("default_mode", "rule")
                 })
+                // DNS-кэш переживает перезапуск ядра: после первого подключения имена
+                // уже известны и первая страница не ждёт TLS-хендшейк до DoH-сервера.
+                put("cache_file", buildJsonObject {
+                    put("enabled", true)
+                    if (settings.cacheFilePath.isNotBlank()) {
+                        put("path", settings.cacheFilePath)
+                    }
+                })
             })
         }
 
@@ -457,6 +465,8 @@ data class SingBoxConfigSettings(
     val mixedListenHost: String = "127.0.0.1",
     val mixedListenPort: Int = 2080,
     val clashApiPort: Int = 9095,
+    // пусто — sing-box кладёт cache.db рядом с рабочим каталогом (так на Android)
+    val cacheFilePath: String = "",
     val warpEnabled: Boolean = false,
     val warpPrivateKey: String = "",
     val warpLocalAddressV4: String = "",
