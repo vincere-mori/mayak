@@ -330,20 +330,7 @@ class MayakVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         return owner
     }
 
-    override fun systemCertificates(): StringIterator {
-        val certificates = mutableListOf<String>()
-        runCatching {
-            val keyStore = KeyStore.getInstance("AndroidCAStore")
-            keyStore.load(null, null)
-            val aliases = keyStore.aliases()
-            while (aliases.hasMoreElements()) {
-                val cert = keyStore.getCertificate(aliases.nextElement())
-                val body = Base64.encodeToString(cert.encoded, Base64.NO_WRAP)
-                certificates += "-----BEGIN CERTIFICATE-----\n$body\n-----END CERTIFICATE-----"
-            }
-        }
-        return BoxStringIterator(certificates)
-    }
+    override fun systemCertificates(): StringIterator = BoxStringIterator(systemCertificateCache)
 
     override fun sendNotification(notification: BoxNotification) {
         Log.d(TAG, "${notification.typeName}: ${notification.body}")
@@ -639,6 +626,23 @@ class MayakVpnService : VpnService(), PlatformInterface, CommandServerHandler {
         private const val EXTRA_CONFIG = "config"
         @Volatile
         private var activeInstance: MayakVpnService? = null
+
+        // ~150 сертификатов из AndroidCAStore разбирались и кодировались в base64
+        // заново на каждое подключение; список за жизнь процесса не меняется
+        private val systemCertificateCache: List<String> by lazy {
+            val certificates = mutableListOf<String>()
+            runCatching {
+                val keyStore = KeyStore.getInstance("AndroidCAStore")
+                keyStore.load(null, null)
+                val aliases = keyStore.aliases()
+                while (aliases.hasMoreElements()) {
+                    val cert = keyStore.getCertificate(aliases.nextElement())
+                    val body = Base64.encodeToString(cert.encoded, Base64.NO_WRAP)
+                    certificates += "-----BEGIN CERTIFICATE-----\n$body\n-----END CERTIFICATE-----"
+                }
+            }
+            certificates
+        }
         @Volatile
         private var currentDefaultNetwork: Network? = null
 

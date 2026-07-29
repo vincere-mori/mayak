@@ -147,11 +147,17 @@ class MainViewModel(
                 }
             }
         }
-        // подтягивает в журнал записи сервиса и sing-box, пишущих из другого процесса
+        // подтягивает в журнал записи сервиса и sing-box, пишущих из другого процесса.
+        // крутим только пока журнал открыт: каждый проход читает три файла целиком и
+        // прогоняет по ним regex-чистку секретов, раз в секунду это заметная работа
         viewModelScope.launch {
-            while (currentCoroutineContext().isActive) {
-                AppJournal.refreshFromDisk()
-                delay(1_000)
+            combine(selectedTab, repository.observeSettings()) { tab, settings ->
+                tab == MayakTab.Journal && settings.journalEnabled
+            }.collectLatest { visible ->
+                while (visible && currentCoroutineContext().isActive) {
+                    AppJournal.refreshFromDisk()
+                    delay(1_000)
+                }
             }
         }
     }
@@ -350,6 +356,7 @@ class MainViewModel(
                 dnsMode = settings.dnsMode,
                 customDnsServers = settings.customDnsServers,
                 ipv6Enabled = settings.ipv6Enabled,
+                cacheFilePath = getApplication<Application>().filesDir.resolve("cache.db").absolutePath,
                 routing = settings.routing.ensureDefaults(),
                 platform = RoutingPlatform.Android
             )
