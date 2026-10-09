@@ -47,7 +47,7 @@ object MayakTheme {
         init {
             isOpaque = false
             isContentAreaFilled = false
-            isFocusPainted = false
+            isFocusPainted = true
             foreground = Color.WHITE
             font = font.deriveFont(Font.BOLD, 13f)
             border = BorderFactory.createEmptyBorder(8, 20, 8, 20)
@@ -78,13 +78,10 @@ object MayakTheme {
         init {
             isOpaque = false
             isContentAreaFilled = false
-            isFocusPainted = false
+            isFocusPainted = true
             foreground = TEXT_DIM
             font = font.deriveFont(Font.BOLD, 12f)
-            border = BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(BORDER_SOFT, 1, true),
-                BorderFactory.createEmptyBorder(7, 14, 7, 14)
-            )
+            border = BorderFactory.createEmptyBorder(9, 15, 9, 15)
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             addMouseListener(object : MouseAdapter() {
                 override fun mouseEntered(e: MouseEvent) { animator.setTarget(1f) }

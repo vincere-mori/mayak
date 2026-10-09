@@ -14,6 +14,7 @@ import app.mayak.core.model.Subscription
 import app.mayak.core.net.LatencyProbe
 import app.mayak.core.net.SubscriptionFetcher
 import app.mayak.core.parser.ProfileInputParser
+import app.mayak.core.parser.AccessInput
 import app.mayak.core.parser.SubscriptionParser
 import app.mayak.core.singbox.SingBoxConfigBuilder
 import app.mayak.core.singbox.SingBoxConfigSettings
@@ -172,8 +173,14 @@ class MainViewModel(
     }
 
     fun saveDraftProfile() {
+        val input = draftKey.value
+        if (AccessInput.isSubscription(input)) {
+            addSubscription(AccessInput.normalize(input))
+            return
+        }
         runAction {
-            val profile = parser.parse(draftKey.value)
+            check(state.value.status == VpnStatus.Disconnected) { "Сначала отключите VPN, затем добавьте новый доступ." }
+            val profile = parser.parse(AccessInput.normalize(input))
             repository.saveProfile(profile)
             repository.setActiveProfile(profile.id)
             draftKey.value = ""
@@ -181,14 +188,23 @@ class MainViewModel(
         }
     }
 
+    fun prepareAccess(input: String) {
+        draftKey.value = input
+        selectedTab.value = MayakTab.Profiles
+        lastError.value = null
+    }
+
     fun selectProfile(profileId: String) {
         runAction {
+            if (repository.currentActiveProfile()?.id == profileId) return@runAction
+            check(state.value.status == VpnStatus.Disconnected) { "Сначала отключите VPN, затем выберите другой сервер." }
             repository.setActiveProfile(profileId)
         }
     }
 
     fun deleteProfile(profileId: String) {
         runAction {
+            check(state.value.status == VpnStatus.Disconnected || state.value.activeProfile?.id != profileId) { "Сначала отключите VPN, затем удалите подключение." }
             repository.deleteProfile(profileId)
         }
     }
@@ -196,6 +212,7 @@ class MainViewModel(
     fun addSubscription(url: String) {
         val trimmed = url.trim()
         runAction {
+            check(state.value.status == VpnStatus.Disconnected) { "Сначала отключите VPN, затем добавьте новый доступ." }
             if (!trimmed.startsWith("http://", true) && !trimmed.startsWith("https://", true)) {
                 throw IllegalArgumentException("ссылка подписки должна начинаться с http:// или https://")
             }
@@ -203,20 +220,25 @@ class MainViewModel(
                 subscriptionParser.parse(subscriptionFetcher.fetch(trimmed))
             }
             if (servers.isEmpty()) throw IllegalStateException("в подписке нет VLESS Reality серверов")
+            val previous = state.value.subscriptions.firstOrNull { it.url == trimmed }
             repository.saveSubscription(
                 Subscription(
-                    id = UUID.randomUUID().toString().take(12),
-                    name = subscriptionName(trimmed),
+                    id = previous?.id ?: UUID.randomUUID().toString().take(12),
+                    name = previous?.name ?: "Мой VPN",
                     url = trimmed,
                     profiles = servers,
                     updatedAtMillis = System.currentTimeMillis()
                 )
             )
+            repository.setActiveProfile(servers.first().id)
+            draftKey.value = ""
+            selectedTab.value = MayakTab.Home
         }
     }
 
     fun refreshSubscription(subscription: Subscription) {
         runAction {
+            check(state.value.status == VpnStatus.Disconnected || subscription.profiles.none { it.id == state.value.activeProfile?.id }) { "Сначала отключите VPN, затем обновите доступ." }
             val servers = withContext(Dispatchers.IO) {
                 subscriptionParser.parse(subscriptionFetcher.fetch(subscription.url))
             }
@@ -229,6 +251,8 @@ class MainViewModel(
 
     fun deleteSubscription(subscriptionId: String) {
         runAction {
+            val activeSub = state.value.subscriptions.firstOrNull { it.id == subscriptionId }
+            check(state.value.status == VpnStatus.Disconnected || activeSub?.profiles?.none { it.id == state.value.activeProfile?.id } != false) { "Сначала отключите VPN, затем удалите доступ." }
             repository.deleteSubscription(subscriptionId)
         }
     }
@@ -289,6 +313,15 @@ class MainViewModel(
                 ?: throw IllegalStateException("сначала добавь ключ")
             connect(profile, repository.currentSettings())
         }
+    }
+
+    fun prepareConnection(): Boolean {
+        val vless = state.value.activeProfile?.vless ?: return true
+        if (vless.transport != "tcp" || !vless.postQuantumVerify.isNullOrBlank()) {
+            lastError.value = "На Android этот способ подключения пока недоступен. Попросите у владельца VPN ссылку TCP Reality без PQV."
+            return false
+        }
+        return true
     }
 
     fun disconnect() {
@@ -387,12 +420,18 @@ class MainViewModel(
     }
 
     private fun runAction(block: suspend () -> Unit) {
+        if (busy.value) return
+        busy.value = true
         viewModelScope.launch {
-            busy.value = true
             lastError.value = null
             runCatching { block() }
                 .onFailure {
-                    lastError.value = it.message ?: "ошибка"
+                    lastError.value = when (it) {
+                        is javax.net.ssl.SSLException -> "Не удалось проверить безопасность ссылки. Попросите владельца VPN обновить сертификат."
+                        is app.mayak.core.parser.ProfileParseException -> "Ссылка повреждена или не поддерживается. Скопируйте её целиком или попросите другую у владельца VPN."
+                        is java.net.UnknownHostException, is java.net.SocketTimeoutException -> "Сервер не отвечает. Проверьте интернет и попробуйте ещё раз."
+                        else -> it.message ?: "Не удалось завершить действие. Попробуйте ещё раз."
+                    }
                     AppJournal.error("app", it.message ?: "ошибка")
                 }
             busy.value = false

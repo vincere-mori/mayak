@@ -39,7 +39,7 @@ class ProfileInputParser(
             .getOrElse { throw ProfileParseException("uuid в ключе битый") }
 
         val host = uri.host ?: throw ProfileParseException("не найден сервер")
-        val port = uri.port.takeIf { it > 0 } ?: throw ProfileParseException("не найден порт")
+        val port = uri.port.takeIf { it in 1..65535 } ?: throw ProfileParseException("не найден порт")
         val query = parseQuery(uri.rawQuery.orEmpty())
         val security = query["security"].orEmpty()
 
@@ -51,7 +51,14 @@ class ProfileInputParser(
             ?: throw ProfileParseException("не найден reality public key")
         val serverName = query["sni"] ?: query["serverName"] ?: query["server_name"]
             ?: throw ProfileParseException("не найден SNI")
-        val displayName = decode(uri.rawFragment).ifBlank { host }
+        val displayName = decode(uri.rawFragment?.replace("+", "%2B")).ifBlank { "Мой сервер" }
+        val transport = query["type"]?.lowercase()?.let { if (it == "raw") "tcp" else it } ?: "tcp"
+        if (transport !in setOf("tcp", "xhttp")) {
+            throw ProfileParseException("Этот способ подключения пока не поддерживается. Попросите ссылку VLESS Reality TCP или XHTTP у владельца сервера.")
+        }
+        if (query["headerType"]?.let { it !in setOf("none", "") } == true) {
+            throw ProfileParseException("Эта ссылка использует неподдерживаемую настройку. Попросите другую ссылку у владельца сервера.")
+        }
 
         val vless = VlessRealityProfile(
             uuid = uuid,
@@ -64,7 +71,12 @@ class ProfileInputParser(
             flow = query["flow"]?.ifBlank { null },
             spiderX = query["spx"]?.ifBlank { null },
             postQuantumVerify = query["pqv"]?.ifBlank { null },
-            displayName = displayName
+            displayName = displayName,
+            transport = transport,
+            transportPath = query["path"] ?: "/",
+            transportHost = query["host"] ?: "",
+            transportMode = query["mode"] ?: "auto",
+            transportExtra = query["extra"]
         )
 
         return ProxyProfile(

@@ -14,5 +14,10 @@ data class VlessRealityProfile(
     val flow: String?,
     val spiderX: String? = null,
     val postQuantumVerify: String? = null,
-    val displayName: String
+    val displayName: String,
+    val transport: String = "tcp",
+    val transportPath: String = "/",
+    val transportHost: String = "",
+    val transportMode: String = "auto",
+    val transportExtra: String? = null
 )

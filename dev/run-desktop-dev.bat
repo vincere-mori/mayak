@@ -13,6 +13,8 @@ if errorlevel 1 (
 )
 
 echo Starting Mayak desktop dev run...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0ensure-xray.ps1"
+if errorlevel 1 exit /b 1
 echo (running as current user. For TUN mode the app will ask to elevate.)
 call ".\gradlew.bat" :desktop:run --no-daemon
 

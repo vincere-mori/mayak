@@ -4,6 +4,7 @@ import app.mayak.core.model.ProxyProfile
 import app.mayak.core.model.Subscription
 import app.mayak.core.model.DnsMode
 import app.mayak.core.model.RoutingSettings
+import app.mayak.core.parser.restoreTransport
 import app.mayak.core.singbox.InboundMode
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -61,5 +62,9 @@ data class DesktopProfileState(
     val activeProfile: ProxyProfile?
         get() = allProfiles.let { all -> all.firstOrNull { it.id == activeProfileId } ?: all.firstOrNull() }
 
-    fun migrated(): DesktopProfileState = copy(routing = routing.ensureDefaults())
+    fun migrated(): DesktopProfileState = copy(
+        routing = routing.ensureDefaults(),
+        profiles = profiles.map { it.restoreTransport() },
+        subscriptions = subscriptions.map { it.copy(profiles = it.profiles.map { profile -> profile.restoreTransport() }) }
+    )
 }

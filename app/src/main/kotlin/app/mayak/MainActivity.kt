@@ -13,8 +13,13 @@ import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import app.mayak.ui.MayakApp
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 
 class MainActivity : ComponentActivity() {
+    private val scanQr = registerForActivityResult(ScanContract()) { result ->
+        result.contents?.let { viewModel.prepareAccess(it) }
+    }
     private val viewModel: MainViewModel by viewModels {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -50,7 +55,11 @@ class MainActivity : ComponentActivity() {
             MayakApp(
                 viewModel = viewModel,
                 onConnectRequested = ::requestPermissionsThenConnect,
-                onExportLogsRequested = { exportLogsDocument.launch("mayak-logs.txt") }
+                onExportLogsRequested = { exportLogsDocument.launch("mayak-logs.txt") },
+                onScanQrRequested = {
+                    scanQr.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                        .setPrompt("Наведите камеру на QR-код VPN").setBeepEnabled(false).setOrientationLocked(false))
+                }
             )
         }
         handleLaunchIntent(intent)
@@ -63,6 +72,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestPermissionsThenConnect() {
+        if (!viewModel.prepareConnection()) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
@@ -80,6 +90,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleLaunchIntent(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_VIEW) {
+            intent.dataString?.let(viewModel::prepareAccess)
+            return
+        }
+        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            intent.getStringExtra(Intent.EXTRA_TEXT)?.let(viewModel::prepareAccess)
+            return
+        }
         if (intent?.getBooleanExtra(EXTRA_CONNECT_FROM_TILE, false) != true) return
         intent.removeExtra(EXTRA_CONNECT_FROM_TILE)
         requestPermissionsThenConnect()

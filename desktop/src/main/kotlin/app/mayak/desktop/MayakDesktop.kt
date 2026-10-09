@@ -19,6 +19,7 @@ import java.awt.Cursor
 import java.awt.Desktop
 import java.awt.Dimension
 import java.awt.Font
+import java.awt.FlowLayout
 import java.awt.GradientPaint
 import java.awt.Graphics
 import java.awt.Graphics2D
@@ -171,10 +172,20 @@ class MayakDesktop(
     // Растёт на каждый connect/disconnect: связывает завершение фонового старта с
     // актуальным намерением, чтобы отменённое подключение не показывало ошибку.
     private var connectToken = 0
+    private val connectionLock = Any()
 
     private lateinit var frame: JFrame
     private val appIcon = ImageIcon(MayakDesktop::class.java.getResource("/icon.png")).image
     private val hero = LighthouseHero()
+    private val xray = XrayProcess()
+    private val connectionModes by lazy { modeControls() }
+    private val guidance = JLabel()
+    private val connectionNotice = JLabel()
+    private var lastConnectionError: String? = null
+    private lateinit var statsPanel: JPanel
+    private val addAccessButton = T.ghostButton("Добавить доступ").apply { addActionListener { openAddAccess() } }
+    private val serversButton = T.ghostButton("Серверы").apply { addActionListener { openServers() } }
+    private val settingsButton = T.ghostButton("Настройки").apply { addActionListener { openSettings() } }
     private var trayIcon: TrayIcon? = null
     private var trayToggleItem: MenuItem? = null
     private var trayOpenItem: MenuItem? = null
@@ -223,6 +234,7 @@ class MayakDesktop(
     private var trafficMonitor: TrafficMonitor? = null
     private val pingTimer = Timer(5000) { runPing() }
     private var pinging = false
+    private var pingFailures = 0
     // перерисовывает дышащие элементы (точка статуса, свечение кнопки)
     private val pulseTimer = Timer(50) { statusDot.repaint(); mainBtn.repaint() }
 
@@ -272,8 +284,8 @@ class MayakDesktop(
         val maxW = (bounds.width - 32).coerceAtLeast(640)
         val maxH = (bounds.height - 32).coerceAtLeast(520)
         // вытянутый по вертикали портрет, а не широкий ландшафт
-        val width = 749.coerceAtMost(maxW).coerceAtLeast(660.coerceAtMost(maxW))
-        val height = 765.coerceAtMost(maxH).coerceAtLeast(600.coerceAtMost(maxH))
+        val width = 780.coerceAtMost(maxW).coerceAtLeast(660.coerceAtMost(maxW))
+        val height = 830.coerceAtMost(maxH).coerceAtLeast(600.coerceAtMost(maxH))
         return Dimension(width, height)
     }
 
@@ -287,71 +299,90 @@ class MayakDesktop(
         }.apply {
             isOpaque = true
             add(topBar(), BorderLayout.NORTH)
-            add(centerStack(), BorderLayout.CENTER)
+            add(JScrollPane(centerStack()).apply {
+                border = null
+                isOpaque = false; viewport.isOpaque = false
+                horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+                verticalScrollBar.unitIncrement = 18
+            }, BorderLayout.CENTER)
         }
     }
 
     private fun topBar(): JPanel = JPanel(BorderLayout()).apply {
         isOpaque = false
-        border = EmptyBorder(8, 18, 4, 14)
-
-        val right = JPanel().apply {
+        border = EmptyBorder(18, 28, 12, 28)
+        add(JLabel("Маяк").apply { foreground = T.TEXT; font = font.deriveFont(Font.BOLD, 22f) }, BorderLayout.WEST)
+        add(JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
             isOpaque = false
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
-            add(btnSubscriptions)
-            add(Box.createHorizontalStrut(4))
-            add(btnKeys)
-            add(Box.createHorizontalStrut(4))
-            add(btnSettings)
-        }
-        add(right, BorderLayout.EAST)
+            add(addAccessButton); add(serversButton); add(settingsButton)
+        }, BorderLayout.EAST)
     }
 
-    private fun centerStack(): JPanel = JPanel().apply {
+    private fun centerStack(): JPanel = object : JPanel(), javax.swing.Scrollable {
+        override fun getPreferredScrollableViewportSize() = Dimension(700, 650)
+        override fun getScrollableUnitIncrement(rect: java.awt.Rectangle, orientation: Int, direction: Int) = 18
+        override fun getScrollableBlockIncrement(rect: java.awt.Rectangle, orientation: Int, direction: Int) = rect.height - 40
+        override fun getScrollableTracksViewportWidth() = true
+        override fun getScrollableTracksViewportHeight() = (parent?.height ?: 0) >= preferredSize.height
+    }.apply {
         isOpaque = false
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = EmptyBorder(0, 18, 12, 18)
-
-        add(Box.createVerticalStrut(2))
-
+        border = EmptyBorder(0, 28, 24, 28)
         hero.alignmentX = Component.CENTER_ALIGNMENT
+        hero.preferredSize = Dimension(700, 340)
+        hero.minimumSize = Dimension(0, 240)
+        hero.maximumSize = Dimension(Int.MAX_VALUE, 400)
         add(hero)
-
-        add(Box.createVerticalStrut(6))
-        add(statusRow())
-        add(Box.createVerticalStrut(10))
-        add(mainBtn.also { it.alignmentX = Component.CENTER_ALIGNMENT })
-        add(Box.createVerticalStrut(12))
-        add(modeControls())
-        add(Box.createVerticalStrut(16))
-        add(statsRow())
-        // гарантированный отступ снизу, чтобы карточки не прилипали к краю окна
         add(Box.createVerticalStrut(20))
+        add(statusRow())
+        add(Box.createVerticalStrut(8))
+        guidance.apply {
+            alignmentX = Component.CENTER_ALIGNMENT
+            foreground = T.MUTED; font = font.deriveFont(13f)
+            horizontalAlignment = SwingConstants.CENTER
+        }
+        add(guidance)
+        add(Box.createVerticalStrut(18))
+        add(mainBtn.also { it.alignmentX = Component.CENTER_ALIGNMENT })
+        add(Box.createVerticalStrut(16))
+        keyChip.apply {
+            isOpaque = false; isContentAreaFilled = false
+            isFocusPainted = true; foreground = T.TEXT_DIM
+            font = font.deriveFont(Font.BOLD, 13f)
+            border = EmptyBorder(14, 20, 14, 20)
+            alignmentX = Component.CENTER_ALIGNMENT
+            preferredSize = Dimension(440, 52); maximumSize = Dimension(500, 52)
+            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            addActionListener { showKeyPicker(this) }
+        }
+        add(keyChip)
+        connectionNotice.apply {
+            alignmentX = Component.CENTER_ALIGNMENT
+            foreground = T.DANGER; font = font.deriveFont(12f)
+            border = EmptyBorder(8, 0, 8, 0)
+        }
+        add(connectionNotice)
+        add(Box.createVerticalStrut(20))
+        statsPanel = statsRow()
+        add(statsPanel)
         add(Box.createVerticalGlue())
+        add(T.ghostButton(L.t("Как пользоваться", "How to use")).apply {
+            alignmentX = Component.CENTER_ALIGNMENT
+            addActionListener { JOptionPane.showMessageDialog(frame,
+                L.t("1. Получите ссылку или QR-код у владельца VPN.\n2. Нажмите «Добавить доступ».\n3. Нажмите «Подключить».\n\nНа компьютере по умолчанию подключается браузер.\nДля всех приложений выберите «Весь компьютер» в настройках.",
+                    "1. Get a link or QR code from your VPN provider.\n2. Select Add access.\n3. Select Connect.\n\nBrowser mode is selected by default.\nFor all apps choose Whole computer in Settings."), "Маяк", JOptionPane.INFORMATION_MESSAGE) }
+        })
     }
 
     private fun statusRow(): JPanel = JPanel().apply {
         isOpaque = false
         layout = BoxLayout(this, BoxLayout.X_AXIS)
         alignmentX = Component.CENTER_ALIGNMENT
-
+        maximumSize = Dimension(Int.MAX_VALUE, 42)
         add(Box.createHorizontalGlue())
-        add(statusDot.apply { foreground = T.MUTED })
-        add(Box.createHorizontalStrut(8))
-        add(statusText.apply { foreground = T.TEXT; font = font.deriveFont(Font.BOLD, 14f) })
-        add(Box.createHorizontalStrut(14))
-
-        keyChip.apply {
-            isOpaque = false
-            isContentAreaFilled = false
-            isFocusPainted = false
-            border = EmptyBorder(6, 12, 6, 12)
-            foreground = T.ACCENT_LIGHT
-            font = font.deriveFont(Font.BOLD, 12f)
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            addActionListener { showKeyPicker(this) }
-        }
-        add(KeyChipFrame(keyChip))
+        add(statusDot)
+        add(Box.createHorizontalStrut(10))
+        add(statusText.apply { foreground = T.TEXT; font = font.deriveFont(Font.BOLD, 28f) })
         add(Box.createHorizontalGlue())
     }
 
@@ -478,7 +509,7 @@ class MayakDesktop(
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
                 val base = when {
                     connecting || disconnecting -> T.WARN
-                    connected -> T.DANGER
+                    connected -> T.SUCCESS
                     else -> T.ACCENT
                 }
                 val pad = 8
@@ -520,7 +551,9 @@ class MayakDesktop(
 
     private fun toggleConnect() {
         if (disconnecting) return
-        if (connected || connecting) disconnect() else connect()
+        if (state.activeProfile == null) openAddAccess()
+        else if (connected && pingFailures >= 3) reconnectAfterModeChange()
+        else if (connected || connecting) disconnect() else connect()
     }
 
     private fun showKeyPicker(anchor: Component) {
@@ -545,17 +578,20 @@ class MayakDesktop(
         }
         val all = state.allProfiles
         if (all.isEmpty()) {
-            menu.add(item(L.t("Добавить ключ…", "Add key...")) { openKeys() })
+            menu.add(item(L.t("Добавить доступ", "Add access")) { openAddAccess() })
         } else {
             all.forEach { p ->
                 val active = p.id == state.activeProfileId
                 menu.add(item("${if (active) "✓ " else "   "}${p.name}   ${p.host}:${p.port}", active) {
+                    if (connecting || disconnecting) return@item
+                    val changed = state.activeProfile?.id != p.id
                     state = state.copy(activeProfileId = p.id); persist(); refresh()
+                    if (changed && connected) reconnectAfterModeChange()
                 })
             }
             menu.addSeparator()
-            menu.add(item(L.t("Управление ключами…", "Manage keys..."), muted = true) { openKeys() })
-            menu.add(item(L.t("Подписки…", "Subscriptions..."), muted = true) { openSubscriptions() })
+            menu.add(item(L.t("Все серверы", "All servers"), muted = true) { openServers() })
+            menu.add(item(L.t("Добавить доступ", "Add access"), muted = true) { openAddAccess() })
         }
         menu.show(anchor, 0, anchor.height + 4)
     }
@@ -573,17 +609,43 @@ class MayakDesktop(
         warpModeBtn.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
     }
 
+    private fun openAddAccess() {
+        if (connecting || disconnecting) return
+        AddAccessDialog(frame, state) { updated ->
+            val changed = state.activeProfile?.id != updated.activeProfile?.id
+            state = updated
+            lastConnectionError = null
+            persist(); refresh()
+            if (changed && connected) reconnectAfterModeChange()
+        }.isVisible = true
+    }
+
+    private fun openServers() {
+        if (connecting || disconnecting) return
+        ConnectionsDialog(frame, state, { updated ->
+            val changed = state.activeProfile?.id != updated.activeProfile?.id
+            state = updated; persist(); refresh()
+            if (changed && connected) {
+                if (updated.activeProfile == null) disconnect() else reconnectAfterModeChange()
+            }
+        }, ::openAddAccess).isVisible = true
+    }
+
     private fun openKeys() {
         KeyManagerDialog(frame, parser, state.profiles, state.activeProfileId) { profiles, activeId ->
+            val changed = state.activeProfile?.id != activeId
             state = state.copy(profiles = profiles, activeProfileId = activeId)
             persist(); refresh()
+            if (changed && connected) reconnectAfterModeChange()
         }.isVisible = true
     }
 
     private fun openSubscriptions() {
         SubscriptionDialog(frame, state.subscriptions, state.activeProfileId) { subscriptions, activeId ->
+            val changed = state.activeProfile?.id != activeId
             state = state.copy(subscriptions = subscriptions, activeProfileId = activeId)
             persist(); refresh()
+            if (changed && connected) reconnectAfterModeChange()
         }.isVisible = true
     }
 
@@ -649,6 +711,16 @@ class MayakDesktop(
             foreground = T.TEXT; font = font.deriveFont(Font.BOLD, 20f); alignmentX = 0f
         })
         content.add(Box.createVerticalStrut(14))
+        content.add(JLabel(L.t("Где использовать VPN", "Where to use VPN")).apply {
+            foreground = T.TEXT; font = font.deriveFont(Font.BOLD, 14f); alignmentX = 0f
+        })
+        content.add(Box.createVerticalStrut(10))
+        content.add(connectionModes)
+        content.add(Box.createVerticalStrut(10))
+        content.add(JLabel(L.t("Весь компьютер: нужен запуск от администратора.", "Whole computer requires administrator access.")).apply {
+            foreground = T.MUTED; alignmentX = 0f
+        })
+        content.add(Box.createVerticalStrut(20))
 
         val dnsBox = JComboBox(DnsMode.entries.toTypedArray()).apply {
             background = T.BG_INPUT; foreground = T.TEXT
@@ -1065,6 +1137,7 @@ class MayakDesktop(
             return
         }
 
+        lastConnectionError = null
         disconnecting = false
         connecting = true
         refresh()
@@ -1076,12 +1149,17 @@ class MayakDesktop(
         Thread {
             // Конфиг собираем здесь, а не в EDT: resolveEndpoint при доменном
             // WARP-эндпоинте уходит в DNS и подвешивает окно на время резолва.
+            val result = synchronized(connectionLock) { runCatching {
+            if (token != connectToken) error("Подключение отменено")
+            val needsXray = profile.vless?.transport == "xhttp" || !profile.vless?.postQuantumVerify.isNullOrBlank()
+            if (needsXray) xray.start(profile).getOrThrow()
             val config = configBuilder.build(
                 profile = profile,
                 settings = SingBoxConfigSettings(
                     dnsMode = snapshot.dnsMode, ipv6Enabled = snapshot.ipv6Enabled,
                     inboundMode = snapshot.inboundMode, mixedListenPort = PROXY_PORT,
                     clashApiPort = CLASH_PORT,
+                    localProxyPort = if (needsXray) XrayProcess.PORT else null,
                     cacheFilePath = DesktopPaths.cacheFile.toString(),
                     warpEnabled = snapshot.warpEnabled && warpUsable,
                     warpPrivateKey = warp?.privateKey ?: "",
@@ -1095,26 +1173,30 @@ class MayakDesktop(
                 )
             )
 
-            val result = singBox.start(config, tunMode = snapshot.inboundMode == InboundMode.Tun)
-            val error = if (result.isSuccess) {
-                if (snapshot.inboundMode == InboundMode.Mixed)
-                    runCatching { systemProxy.enable(PROXY_PORT) }
-                        .onFailure { singBox.stop() }.exceptionOrNull()
-                else null
-            } else result.exceptionOrNull()
+            singBox.start(config, tunMode = snapshot.inboundMode == InboundMode.Tun).getOrThrow()
+            if (token != connectToken) error("Подключение отменено")
+            val delay = latencyProbe.proxyLatencyMs(CLASH_PORT, testUrl = "https://www.gstatic.com/generate_204", timeoutMs = 5000)
+                ?: latencyProbe.proxyLatencyMs(CLASH_PORT, testUrl = "https://www.cloudflare.com/cdn-cgi/trace", timeoutMs = 5000)
+            check(delay != null) { "Сервер не отвечает. Проверьте интернет или попросите другую ссылку доступа." }
+            if (token != connectToken) error("Подключение отменено")
+            if (snapshot.inboundMode == InboundMode.Mixed) systemProxy.enable(PROXY_PORT)
+            }.onFailure { singBox.stop(); xray.stop(); systemProxy.restore() } }
+            val error = result.exceptionOrNull()
 
             SwingUtilities.invokeLater {
                 // Пользователь успел отменить или переключиться — игнорируем результат
                 // этого старта, иначе он перезатрёт состояние и покажет ложную ошибку.
                 if (token != connectToken) {
-                    if (error == null) runCatching { singBox.stop() }
                     return@invokeLater
                 }
                 connecting = false
                 connected = error == null
                 if (connected) startMonitoring()
                 refresh()
-                error?.let { showError(it.message ?: L.t("не удалось подключиться", "failed to connect")) }
+                error?.let {
+                    lastConnectionError = UserFacingError.describe(it)
+                    refresh()
+                }
             }
         }.apply { isDaemon = true; start() }
     }
@@ -1127,7 +1209,7 @@ class MayakDesktop(
         stopMonitoring()
         refresh()
         Thread {
-            runCatching { singBox.stop(); systemProxy.restore() }
+            synchronized(connectionLock) { runCatching { singBox.stop(); xray.stop(); systemProxy.restore() } }
             SwingUtilities.invokeLater {
                 connected = false
                 disconnecting = false
@@ -1137,10 +1219,12 @@ class MayakDesktop(
     }
 
     private fun reconnectAfterModeChange() {
+        if (connecting || disconnecting) return
+        connectToken++
         disconnecting = true
         refresh()
         Thread {
-            runCatching { singBox.stop(); systemProxy.restore() }
+            synchronized(connectionLock) { runCatching { singBox.stop(); xray.stop(); systemProxy.restore() } }
             SwingUtilities.invokeLater {
                 connected = false
                 stopMonitoring()
@@ -1155,6 +1239,7 @@ class MayakDesktop(
     }
 
     private fun startMonitoring() {
+        pingFailures = 0
         pingTimer.start()
         runPing()
         trafficMonitor = TrafficMonitor(CLASH_PORT).also { tm ->
@@ -1177,6 +1262,11 @@ class MayakDesktop(
     }
 
     private fun runPing(showProgress: Boolean = false) {
+        if (connected && (!singBox.running || (state.activeProfile?.vless?.transport == "xhttp" && !xray.running))) {
+            lastConnectionError = L.t("Подключение прервалось. Нажмите «Подключить», чтобы попробовать снова.", "Connection lost. Select Connect to try again.")
+            disconnect()
+            return
+        }
         if (pinging) return
         val profile = state.activeProfile ?: return
         pinging = true
@@ -1189,11 +1279,18 @@ class MayakDesktop(
             // при активном VPN прямой замер уходит в тоннель и врёт (0/мусор),
             // поэтому меряем реальную задержку до узла через clash API
             val ms = if (connected)
-                latencyProbe.proxyLatencyMs(CLASH_PORT) ?: latencyProbe.tcpLatencyMs(profile.host, profile.port)
+                latencyProbe.proxyLatencyMs(CLASH_PORT, testUrl = "https://www.gstatic.com/generate_204")
+                    ?: latencyProbe.proxyLatencyMs(CLASH_PORT, testUrl = "https://www.cloudflare.com/cdn-cgi/trace")
             else
                 latencyProbe.tcpLatencyMs(profile.host, profile.port)
             SwingUtilities.invokeLater {
                 pinging = false
+                if (connected) {
+                    pingFailures = if (ms == null) pingFailures + 1 else 0
+                    if (pingFailures >= 3) lastConnectionError = L.t("VPN включён, но сервер не отвечает. Попробуйте переподключиться или выбрать другой сервер.", "VPN is running but the server is not responding. Reconnect or choose another server.")
+                    else if (lastConnectionError?.startsWith("VPN ") == true) lastConnectionError = null
+                    refresh()
+                }
                 pingTestBtn.isEnabled = state.activeProfile != null
                 pingValue.text = ms?.let { "$it ms" } ?: "—"
                 pingValue.foreground = when {
@@ -1209,7 +1306,7 @@ class MayakDesktop(
     private fun shutdown() {
         stopMonitoring()
         removeTrayIcon()
-        runCatching { singBox.stop(); systemProxy.restore() }
+        runCatching { singBox.stop(); xray.stop(); systemProxy.restore() }
         DesktopSingleInstance.close()
         frame.dispose(); exitProcess(0)
     }
@@ -1224,9 +1321,9 @@ class MayakDesktop(
             btnKeys.toolTipText = L.t("Управление ключами", "Key Management")
             btnSettings.toolTipText = L.t("Настройки", "Settings")
 
-            pingLabel.text = L.t("пинг", "ping")
-            downLabel.text = L.t("↓ вход", "↓ in")
-            upLabel.text = L.t("↑ исх", "↑ out")
+            pingLabel.text = L.t("Задержка", "Latency")
+            downLabel.text = L.t("Загрузка", "Download")
+            upLabel.text = L.t("Отправка", "Upload")
 
             pingTestBtn.text = L.t("Тест", "Test")
             pingTestBtn.toolTipText = L.t("Проверить задержку до активного сервера", "Check latency to the active server")
@@ -1311,15 +1408,44 @@ class MayakDesktop(
             }
             mainBtn.isEnabled = !registeringWarp && !disconnecting
             mainBtn.repaint()
+            mainBtn.accessibleContext.accessibleName = mainBtn.text
 
             val pulse = connected || connecting || disconnecting || registeringWarp
             statusDot.pulsing = pulse
             if (pulse) { if (!pulseTimer.isRunning) pulseTimer.start() } else pulseTimer.stop()
 
             val active = state.activeProfile
+            addAccessButton.text = L.t("Добавить доступ", "Add access")
+            serversButton.text = L.t("Серверы", "Servers")
+            settingsButton.text = L.t("Настройки", "Settings")
+            proxyModeBtn.text = L.t("Браузер", "Browser")
+            tunModeBtn.text = L.t("Весь компьютер", "Whole computer")
+            if (active == null && !connecting && !connected) {
+                statusText.text = L.t("Добавьте ваш VPN", "Add your VPN")
+                mainBtn.text = L.t("Добавить доступ", "Add access")
+            }
+            if (connected && !disconnecting && pingFailures >= 3) {
+                statusText.text = L.t("Сервер не отвечает", "Server is not responding")
+                statusText.foreground = T.WARN
+                mainBtn.text = L.t("Переподключить", "Reconnect")
+            }
+            guidance.text = when {
+                connecting -> L.t("Устанавливаем соединение с сервером", "Connecting to your server")
+                disconnecting -> L.t("Возвращаем обычное подключение", "Restoring your normal connection")
+                active == null -> L.t("Добавьте ссылку или QR-код. Остальное настроит Маяк.", "Add a link or QR code. Mayak handles the rest.")
+                state.inboundMode == InboundMode.Mixed -> L.t("VPN для браузера и приложений с поддержкой прокси", "VPN for your browser and proxy-aware apps")
+                else -> L.t("VPN для всех приложений компьютера", "VPN for all apps on this computer")
+            }
+            connectionNotice.text = lastConnectionError?.let { "<html>" + it.replace("&", "&amp;").replace("<", "&lt;") + "</html>" } ?: ""
+            connectionNotice.isVisible = lastConnectionError != null
+            statsPanel.isVisible = connected
+            keyChip.isVisible = active != null
+            keyChip.isEnabled = !connecting && !disconnecting
+            addAccessButton.isEnabled = !connecting && !disconnecting
+            serversButton.isEnabled = !connecting && !disconnecting
             keyChip.text = if (active != null) {
                 "  ${active.name}  ▾"
-            } else L.t("  выбери ключ  ▾", "  select key  ▾")
+            } else L.t("Выбрать сервер", "Choose server")
 
             when (state.inboundMode) {
                 InboundMode.Mixed -> proxyModeBtn.isSelected = true
