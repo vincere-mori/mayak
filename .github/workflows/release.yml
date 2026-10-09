@@ -27,6 +27,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
@@ -167,6 +169,10 @@ jobs:
           * **Mayak-Windows-${GITHUB_REF_NAME}.exe** - Windows.
 
           ---
+
+          Добавьте ссылку или QR-код от владельца VPN и нажмите «Подключить».
+          Windows поддерживает XHTTP Reality. Android сейчас поддерживает TCP Reality без PQV; XHTTP на Android пока недоступен.
+          В Windows по умолчанию подключается браузер. Для всех приложений выберите «Весь компьютер» в настройках.
           EOF
           gh release create "${GITHUB_REF_NAME}" \
             "release/Mayak-Android-${GITHUB_REF_NAME}.apk" \
