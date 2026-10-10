@@ -20,6 +20,9 @@ class SingBoxConfigBuilder(
 ) {
     fun build(profile: ProxyProfile, settings: SingBoxConfigSettings = SingBoxConfigSettings()): String {
         val vless = profile.vless ?: error("vless profile missing")
+        require((vless.transport == "tcp" && vless.postQuantumVerify.isNullOrBlank()) || settings.localProxyPort != null) {
+            "Для этого подключения требуется ядро Xray. На этом устройстве XHTTP пока недоступен."
+        }
         val routing = settings.routing.ensureDefaults()
         val proxySupportsUdp = vless.flow == null
         val config = buildJsonObject {
@@ -42,7 +45,13 @@ class SingBoxConfigBuilder(
                 )
             })
             put("outbounds", buildJsonArray {
-                add(vlessOutbound(profile))
+                add(settings.localProxyPort?.let { port -> buildJsonObject {
+                    put("type", "socks")
+                    put("tag", "proxy")
+                    put("server", "127.0.0.1")
+                    put("server_port", port)
+                    put("version", "5")
+                } } ?: vlessOutbound(profile))
                 add(taggedOutbound("direct", "direct"))
             })
             put("route", route(settings, routing, proxySupportsUdp))
@@ -465,6 +474,7 @@ data class SingBoxConfigSettings(
     val mixedListenHost: String = "127.0.0.1",
     val mixedListenPort: Int = 2080,
     val clashApiPort: Int = 9095,
+    val localProxyPort: Int? = null,
     // пусто — sing-box кладёт cache.db рядом с рабочим каталогом (так на Android)
     val cacheFilePath: String = "",
     val warpEnabled: Boolean = false,

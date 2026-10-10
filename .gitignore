@@ -12,4 +12,6 @@ captures/
 *.log
 sing-box
 sing-box.exe
+/xray
+/xray.exe
 __pycache__/

@@ -32,6 +32,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
     implementation("net.java.dev.jna:jna-platform:5.18.1")
     implementation("com.formdev:flatlaf:3.6")
+    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.google.zxing:javase:3.5.3")
 
     testImplementation(kotlin("test"))
 }

@@ -6,6 +6,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import app.mayak.core.model.ProxyProfile
 import app.mayak.core.model.Subscription
+import app.mayak.core.parser.restoreTransport
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -102,12 +103,12 @@ class SharedPrefsProfileRepository(context: Context) : ProfileRepository {
 
     private fun loadProfiles(): List<ProxyProfile> {
         val raw = securePrefs.getString(KEY_PROFILES) ?: return emptyList()
-        return runCatching { json.decodeFromString<List<ProxyProfile>>(raw) }.getOrDefault(emptyList())
+        return runCatching { json.decodeFromString<List<ProxyProfile>>(raw).map { it.restoreTransport() } }.getOrDefault(emptyList())
     }
 
     private fun loadSubscriptions(): List<Subscription> {
         val raw = securePrefs.getString(KEY_SUBSCRIPTIONS) ?: return emptyList()
-        return runCatching { json.decodeFromString<List<Subscription>>(raw) }.getOrDefault(emptyList())
+        return runCatching { json.decodeFromString<List<Subscription>>(raw).map { it.copy(profiles = it.profiles.map { profile -> profile.restoreTransport() }) } }.getOrDefault(emptyList())
     }
 
     private fun writeSubscriptions(value: List<Subscription>) {

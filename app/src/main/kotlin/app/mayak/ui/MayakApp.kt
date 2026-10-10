@@ -48,7 +48,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -75,6 +75,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -94,7 +95,8 @@ import app.mayak.vpn.VpnStatus
 fun MayakApp(
     viewModel: MainViewModel,
     onConnectRequested: () -> Unit,
-    onExportLogsRequested: () -> Unit
+    onExportLogsRequested: () -> Unit,
+    onScanQrRequested: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -102,6 +104,7 @@ fun MayakApp(
         MayakScreen(
             state = state,
             onConnectRequested = onConnectRequested,
+            onScanQrRequested = onScanQrRequested,
             onExportLogs = onExportLogsRequested,
             onDisconnect = viewModel::disconnect,
             onTabSelected = viewModel::selectTab,
@@ -127,6 +130,7 @@ fun MayakApp(
 private fun MayakScreen(
     state: MayakUiState,
     onConnectRequested: () -> Unit,
+    onScanQrRequested: () -> Unit,
     onExportLogs: () -> Unit,
     onDisconnect: () -> Unit,
     onTabSelected: (MayakTab) -> Unit,
@@ -148,18 +152,23 @@ private fun MayakScreen(
         modifier = Modifier.mayakBackground(),
         containerColor = Color.Transparent,
         topBar = {
-            LargeTopAppBar(
+            TopAppBar(
                 title = {
                     Column {
                         Text("Маяк", fontWeight = FontWeight.SemiBold)
                         Text(
-                            text = state.statusText,
+                            text = when (state.selectedTab) {
+                                MayakTab.Home -> "VPN для приложений телефона"
+                                MayakTab.Profiles, MayakTab.Subscriptions -> "Ваши подключения"
+                                MayakTab.Settings -> "Настройки подключения"
+                                MayakTab.Journal -> "Диагностика"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
-                colors = TopAppBarDefaults.largeTopAppBarColors(
+                colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     scrolledContainerColor = Color.Transparent,
                     titleContentColor = MayakColors.Text
@@ -187,7 +196,11 @@ private fun MayakScreen(
                 onDraftChanged = onDraftChanged,
                 onSaveDraft = onSaveDraft,
                 onSelectProfile = onSelectProfile,
-                onDeleteProfile = onDeleteProfile
+                onDeleteProfile = onDeleteProfile,
+                onScanQr = onScanQrRequested,
+                onRefreshSubscription = onRefreshSubscription,
+                onDeleteSubscription = onDeleteSubscription,
+                onPingServer = onPingServer
             )
             MayakTab.Subscriptions -> SubscriptionsTab(
                 state = state,
@@ -211,7 +224,8 @@ private fun MayakScreen(
                 onSaveDnsSettings = onSaveDnsSettings,
                 onIpv6Changed = onIpv6Changed,
                 onSaveRouting = onSaveRouting,
-                onExportLogs = onExportLogs
+                onExportLogs = onExportLogs,
+                onOpenJournal = { onTabSelected(MayakTab.Journal) }
             )
         }
     }
@@ -256,7 +270,7 @@ private fun HomeTab(
             )
         }
         item {
-            ActiveProfileCard(profile = state.activeProfile)
+            ActiveProfileCard(profile = state.activeProfile, onChooseServer = onAddProfile)
         }
         if (state.status == VpnStatus.Connected) {
             item {
@@ -311,26 +325,26 @@ private fun ConnectButton(
     onAddProfile: () -> Unit
 ) {
     val targetContainer = when {
-        state.status == VpnStatus.Connected -> MayakColors.Danger
+        state.status == VpnStatus.Connected -> MayakColors.Success
         state.status == VpnStatus.Connecting || state.status == VpnStatus.Disconnecting -> MayakColors.Warn
         else -> MayakColors.Accent
     }
     val container by animateColorAsState(
         targetValue = targetContainer,
-        animationSpec = tween(durationMillis = 320),
+        animationSpec = tween(durationMillis = 200),
         label = "connect-button-color"
     )
     Button(
         onClick = {
             if (state.activeProfile == null) {
                 onAddProfile()
-            } else if (state.status == VpnStatus.Connected) {
+            } else if (state.status == VpnStatus.Connected || state.status == VpnStatus.Connecting) {
                 onDisconnect()
             } else {
                 onConnectRequested()
             }
         },
-        enabled = !state.isBusy && state.status != VpnStatus.Connecting && state.status != VpnStatus.Disconnecting,
+        enabled = !state.isBusy && state.status != VpnStatus.Disconnecting,
         shape = CircleShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = container,
@@ -348,7 +362,7 @@ private fun ConnectButton(
         )
         Spacer(Modifier.width(10.dp))
         Text(
-            text = if (state.activeProfile == null) "Добавить ключ" else primaryActionText(state.status),
+            text = if (state.activeProfile == null) "Добавить доступ" else primaryActionText(state.status),
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold
         )
@@ -356,27 +370,28 @@ private fun ConnectButton(
 }
 
 @Composable
-private fun ActiveProfileCard(profile: ProxyProfile?) {
+private fun ActiveProfileCard(profile: ProxyProfile?, onChooseServer: () -> Unit) {
     Card(
+        onClick = onChooseServer,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         shape = MaterialTheme.shapes.medium
     ) {
         Column(Modifier.padding(18.dp)) {
             Text(
-                text = "Активный ключ",
+                text = "Сервер подключения",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = profile?.name ?: "Нет ключа",
+                text = profile?.name ?: "Добавьте ваш VPN",
                 style = MaterialTheme.typography.titleLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                text = profile?.let { "${it.host}:${it.port}" } ?: "Добавь VLESS Reality ключ",
+                text = if (profile == null) "Получите ссылку или QR-код у владельца VPN. Маяк прочитает настройки сам." else "Выбран для следующего подключения",
                 style = MaterialTheme.typography.bodyMedium
             )
         }
@@ -447,8 +462,14 @@ private fun ProfilesTab(
     onDraftChanged: (String) -> Unit,
     onSaveDraft: () -> Unit,
     onSelectProfile: (String) -> Unit,
-    onDeleteProfile: (String) -> Unit
+    onDeleteProfile: (String) -> Unit,
+    onScanQr: () -> Unit,
+    onRefreshSubscription: (Subscription) -> Unit,
+    onDeleteSubscription: (String) -> Unit,
+    onPingServer: (ProxyProfile) -> Unit
 ) {
+    var deletingProfile by remember { mutableStateOf<ProxyProfile?>(null) }
+    var deletingSubscription by remember { mutableStateOf<Subscription?>(null) }
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -461,7 +482,8 @@ private fun ProfilesTab(
                 value = state.draftKey,
                 onValueChanged = onDraftChanged,
                 onSave = onSaveDraft,
-                enabled = !state.isBusy
+                enabled = !state.isBusy,
+                onScanQr = onScanQr
             )
         }
         items(state.profiles, key = { it.id }) { profile ->
@@ -469,10 +491,37 @@ private fun ProfilesTab(
                 profile = profile,
                 selected = profile.id == state.activeProfile?.id,
                 onSelect = { onSelectProfile(profile.id) },
-                onDelete = { onDeleteProfile(profile.id) }
+                onDelete = { deletingProfile = profile }
             )
         }
+        items(state.subscriptions, key = { "subscription-" + it.id }) { subscription ->
+            SubscriptionCard(
+                subscription = subscription,
+                activeProfileId = state.activeProfile?.id,
+                pingResults = state.pingResults,
+                pingingIds = state.pingingIds,
+                busy = state.isBusy,
+                onRefresh = { onRefreshSubscription(subscription) },
+                onDelete = { deletingSubscription = subscription },
+                onPingAll = { subscription.profiles.forEach(onPingServer) },
+                onSelectServer = { onSelectProfile(it.id) },
+                onPingServer = onPingServer
+            )
+        }
+        state.lastError?.let { error -> item { ErrorCard(error) } }
     }
+    val deleteName = deletingProfile?.name ?: deletingSubscription?.name
+    if (deleteName != null) AlertDialog(
+        onDismissRequest = { deletingProfile = null; deletingSubscription = null },
+        title = { Text("Удалить доступ «$deleteName»?") },
+        text = { Text("Чтобы вернуть подключение, понадобится исходная ссылка от владельца VPN.") },
+        confirmButton = { TextButton(onClick = {
+            deletingProfile?.let { onDeleteProfile(it.id) }
+            deletingSubscription?.let { onDeleteSubscription(it.id) }
+            deletingProfile = null; deletingSubscription = null
+        }) { Text("Удалить") } },
+        dismissButton = { TextButton(onClick = { deletingProfile = null; deletingSubscription = null }) { Text("Оставить") } }
+    )
 }
 
 @Composable
@@ -480,21 +529,30 @@ private fun AddProfileCard(
     value: String,
     onValueChanged: (String) -> Unit,
     onSave: () -> Unit,
-    enabled: Boolean
+    enabled: Boolean,
+    onScanQr: () -> Unit
 ) {
+    val clipboard = LocalClipboardManager.current
     Card(shape = MaterialTheme.shapes.medium) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Text("Добавить доступ", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text("Вставьте ссылку от владельца VPN или отсканируйте QR-код. Настройки заполнятся автоматически.", color = MayakColors.TextDim)
             OutlinedTextField(
                 value = value,
                 onValueChange = onValueChanged,
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text("Ключ") },
-                minLines = 4,
-                maxLines = 8
+                label = { Text("Ссылка доступа") },
+                minLines = 2,
+                maxLines = 4,
+                enabled = enabled
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { clipboard.getText()?.text?.let(onValueChanged) }, enabled = enabled) { Text("Вставить ссылку") }
+                OutlinedButton(onClick = onScanQr, enabled = enabled) { Text("QR-код") }
+            }
             Button(
                 onClick = onSave,
                 enabled = enabled && value.isNotBlank(),
@@ -502,7 +560,7 @@ private fun AddProfileCard(
             ) {
                 Icon(Icons.Outlined.Key, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Сохранить")
+                Text(if (enabled) "Добавить доступ" else "Проверяем ссылку...")
             }
         }
     }
@@ -535,7 +593,7 @@ private fun ProfileRow(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = profile.kind.label() + " · " + profile.hostPort(),
+                    text = if (selected) "Выбран для подключения" else "Нажмите, чтобы выбрать",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -631,7 +689,8 @@ private fun SettingsTab(
     onSaveDnsSettings: (DnsMode, String, Boolean) -> Unit,
     onIpv6Changed: (Boolean) -> Unit,
     onSaveRouting: (RoutingSettings) -> Unit,
-    onExportLogs: () -> Unit
+    onExportLogs: () -> Unit,
+    onOpenJournal: () -> Unit
 ) {
     val savedRouting = state.settings.routing.ensureDefaults()
     var selectedDnsMode by remember(state.settings.dnsMode) {
@@ -711,7 +770,8 @@ private fun SettingsTab(
         item {
             Card(shape = MaterialTheme.shapes.medium) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("Логи", style = MaterialTheme.typography.titleMedium)
+                    Text("Помощь с подключением", style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = onOpenJournal) { Text("Открыть диагностику") }
                     Text(
                         "Сохрани журнал работы для диагностики. Ключи и пароли вырезаются автоматически.",
                         style = MaterialTheme.typography.bodySmall,
@@ -1154,7 +1214,7 @@ private fun MayakBottomBar(
         containerColor = MayakColors.BgTop,
         contentColor = MayakColors.TextDim
     ) {
-        MayakTab.entries.forEach { tab ->
+        listOf(MayakTab.Home, MayakTab.Profiles, MayakTab.Settings).forEach { tab ->
             NavigationBarItem(
                 selected = selectedTab == tab,
                 onClick = { onTabSelected(tab) },
@@ -1175,7 +1235,7 @@ private fun MayakBottomBar(
 private fun primaryActionText(status: VpnStatus): String {
     return when (status) {
         VpnStatus.Connected -> "Отключить"
-        VpnStatus.Connecting -> "Подключение"
+        VpnStatus.Connecting -> "Отмена"
         VpnStatus.Disconnecting -> "Отключение"
         VpnStatus.Disconnected -> "Подключить"
     }
@@ -1194,7 +1254,7 @@ private fun ProxyProfile.hostPort(): String {
 private fun MayakTab.icon(): ImageVector {
     return when (this) {
         MayakTab.Home -> Icons.Outlined.Home
-        MayakTab.Profiles -> Icons.Outlined.Key
+        MayakTab.Profiles -> Icons.Outlined.Public
         MayakTab.Subscriptions -> Icons.Outlined.Public
         MayakTab.Journal -> Icons.Outlined.Description
         MayakTab.Settings -> Icons.Outlined.Settings

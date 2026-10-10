@@ -13,11 +13,11 @@ android {
         applicationId = "app.mayak"
         minSdk = 24
         targetSdk = 35
-        versionCode = 23
-        versionName = "1.0.3"
+        versionCode = 25
+        versionName = "1.1.1"
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            abiFilters += if (project.findProperty("mayakEmulator") == "true") listOf("x86_64") else listOf("arm64-v8a", "armeabi-v7a")
         }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -63,9 +63,14 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
 
     implementation("net.clever-vpn:libbox-android:2.1.0")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2025.04.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 }

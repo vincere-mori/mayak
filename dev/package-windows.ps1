@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "1.0.1",
+    [string]$Version = "1.1.1",
     [switch]$SkipBuild
 )
 
@@ -8,17 +8,14 @@ $ErrorActionPreference = "Stop"
 $Repo = Resolve-Path (Join-Path $PSScriptRoot "..")
 $CleanVersion = $Version.TrimStart("v")
 if ($CleanVersion -notmatch "^\d+\.\d+\.\d+$") {
-    $CleanVersion = "1.0.1"
+    throw 'version must have major.minor.patch format'
 }
 
-# MSI version: embed a day-stamp in the patch field (month*31+day = 32..403).
-# This makes every new build "newer" than the previous one so the installer
-# always replaces files on reinstall, even when the semver hasn't changed.
-# The user-facing filename keeps the clean semver (e.g. v1.0.1).
-$Major, $Minor = $CleanVersion -split '\.' | Select-Object -First 2
-$Now = Get-Date
-$DayStamp = $Now.Month * 31 + $Now.Day
-$MsiVersion = "$Major.$Minor.$DayStamp"
+# значение выше старых сборок с датой, затем растёт вместе с patch
+$Major, $Minor, $Patch = $CleanVersion -split '\.'
+$MsiPatch = 1000 + [int]$Patch
+if ($MsiPatch -gt 65535) { throw 'version patch is too large for MSI' }
+$MsiVersion = "$Major.$Minor.$MsiPatch"
 
 $BuildDir = Join-Path $Repo "build"
 $ToolsDir = Join-Path $BuildDir "tools"
@@ -46,6 +43,11 @@ $JavaOptions = "-Dfile.encoding=UTF-8 -Xmx128m -Xms16m -XX:+UseSerialGC -XX:MaxM
 $WixSha256 = "2c1888d5d1dba377fc7fa14444cf556963747ff9a0a289a3599cf09da03b9e2e"
 
 function Reset-Directory($Path) {
+    $ResolvedBuild = [IO.Path]::GetFullPath($BuildDir).TrimEnd('\') + '\'
+    $ResolvedTarget = [IO.Path]::GetFullPath($Path)
+    if (!$ResolvedTarget.StartsWith($ResolvedBuild, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "unsafe package path: $ResolvedTarget"
+    }
     if (Test-Path $Path) {
         Remove-Item -LiteralPath $Path -Recurse -Force
     }
@@ -94,6 +96,7 @@ if (!(Test-Path (Join-Path $LibDir "desktop.jar"))) {
 Copy-Item (Join-Path $LibDir "*") $InputDir -Recurse -Force
 
 & (Join-Path $PSScriptRoot "ensure-sing-box.ps1") -Destination (Join-Path $InputDir "sing-box.exe") | Out-Null
+& (Join-Path $PSScriptRoot "ensure-xray.ps1") -Destination (Join-Path $InputDir "xray.exe") | Out-Null
 
 $TempOutput = Join-Path $PackageDir "output"
 Reset-Directory $TempOutput
@@ -101,6 +104,9 @@ Reset-Directory $TempOutput
 # Собираем урезанный runtime через jlink: вместо полного JDK (~200 МБ)
 # получаем образ ~50 МБ только с нужными модулями. jpackage потом
 # берёт его через --runtime-image вместо генерации своего.
+$ResolvedRuntime = [IO.Path]::GetFullPath($RuntimeDir)
+$ResolvedBuildRoot = [IO.Path]::GetFullPath($BuildDir).TrimEnd('\') + '\'
+if (!$ResolvedRuntime.StartsWith($ResolvedBuildRoot, [StringComparison]::OrdinalIgnoreCase)) { throw "unsafe runtime path" }
 if (Test-Path $RuntimeDir) { Remove-Item -LiteralPath $RuntimeDir -Recurse -Force }
 & jlink `
     --strip-debug `

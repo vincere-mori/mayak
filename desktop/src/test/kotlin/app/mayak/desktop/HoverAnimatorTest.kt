@@ -10,6 +10,20 @@ import kotlin.test.assertTrue
 
 class HoverAnimatorTest {
     @Test
+    fun leavingBeforeFirstFrameCancelsTheHover() {
+        lateinit var animator: HoverAnimator
+        SwingUtilities.invokeAndWait {
+            animator = HoverAnimator(JPanel()) {}
+            animator.setTarget(1f)
+            animator.setTarget(0f)
+        }
+        Thread.sleep(200)
+        SwingUtilities.invokeAndWait {
+            assertEquals(0f, animator.progress)
+            assertTrue(!animator.running)
+        }
+    }
+    @Test
     fun modeAnimationProducesEnoughFrames() {
         val samples = mutableListOf<Float>()
         val finished = CountDownLatch(1)

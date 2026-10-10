@@ -18,7 +18,12 @@ object DesktopPaths {
         }
 
         val dirName = if (Platform.isWindows || Platform.isMac) "Mayak" else "mayak"
-        base.resolve(dirName).also { it.createDirectories() }
+        base.resolve(dirName).also {
+            it.createDirectories()
+            if (java.nio.file.Files.getFileStore(it).supportsFileAttributeView("posix")) {
+                java.nio.file.Files.setPosixFilePermissions(it, java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"))
+            }
+        }
     }
 
     val profilesFile: Path by lazy { appDir.resolve("profiles.json") }
