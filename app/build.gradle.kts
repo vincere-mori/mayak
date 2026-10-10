@@ -13,8 +13,8 @@ android {
         applicationId = "app.mayak"
         minSdk = 24
         targetSdk = 35
-        versionCode = 24
-        versionName = "1.1.0"
+        versionCode = 25
+        versionName = "1.1.1"
 
         ndk {
             abiFilters += if (project.findProperty("mayakEmulator") == "true") listOf("x86_64") else listOf("arm64-v8a", "armeabi-v7a")

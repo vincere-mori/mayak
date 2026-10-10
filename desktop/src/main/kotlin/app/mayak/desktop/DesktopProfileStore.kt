@@ -25,17 +25,24 @@ class DesktopProfileStore(
 ) {
     fun load(): DesktopProfileState {
         if (!file.exists()) return DesktopProfileState()
-        return runCatching {
-            json.decodeFromString<DesktopProfileState>(
-                secretBox.unprotect(Files.readString(file))
-            ).migrated()
-        }.getOrDefault(DesktopProfileState())
+        return runCatching { decode(Files.readString(file)) }.getOrElse {
+            val backup = file.resolveSibling(file.fileName.toString() + ".bak")
+            if (backup.exists()) runCatching { decode(Files.readString(backup)) }.getOrNull()?.let { return it }
+            throw IllegalStateException("Не удалось прочитать настройки. Исходный файл сохранён и не будет заменён пустыми настройками.", it)
+        }
     }
+
+    private fun decode(encoded: String) = json.decodeFromString<DesktopProfileState>(secretBox.unprotect(encoded)).migrated()
 
     fun save(state: DesktopProfileState) {
         file.parent?.let { Files.createDirectories(it) }
         val tmp = file.resolveSibling(file.fileName.toString() + ".tmp")
         tmp.writeText(secretBox.protect(json.encodeToString(state)))
+        if (file.exists()) {
+            val old = Files.readString(file)
+            val suffix = if (runCatching { decode(old) }.isSuccess) ".bak" else ".damaged"
+            Files.copy(file, file.resolveSibling(file.fileName.toString() + suffix), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
         Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
     }
 }

@@ -43,8 +43,11 @@
 
 ## Десктоп
 
+Главное окно по умолчанию 640*700. Настройки переносят длинные подписи и прокручиваются на небольших экранах. Кнопки поддерживают наведение, нажатие и клавиатурный фокус; ПКМ открывает меню действий.
+
 <p align="center">
   <img src=".assets/redesign-desktop.png" width="65%" alt="Первый запуск Маяка">
+  <img src=".assets/redesign-settings.png" width="55%" alt="Настройки Маяка без обрезки элементов">
 </p>
 
 ## Android
@@ -86,7 +89,7 @@ dev\run-desktop-dev.bat
 Windows installer:
 
 ```bat
-dev\build-windows.bat 1.0.1
+dev\build-windows.bat 1.1.1
 ```
 
 Android APK:
@@ -98,13 +101,13 @@ Android APK:
 Linux package:
 
 ```bash
-dev/package-linux.sh 1.0.1
+dev/package-linux.sh 1.1.1
 ```
 
 macOS package:
 
 ```bash
-dev/package-macos.sh 1.0.1
+dev/package-macos.sh 1.1.1
 ```
 
 ## Стек

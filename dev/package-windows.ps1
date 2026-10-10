@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "1.0.1",
+    [string]$Version = "1.1.1",
     [switch]$SkipBuild
 )
 
@@ -8,17 +8,14 @@ $ErrorActionPreference = "Stop"
 $Repo = Resolve-Path (Join-Path $PSScriptRoot "..")
 $CleanVersion = $Version.TrimStart("v")
 if ($CleanVersion -notmatch "^\d+\.\d+\.\d+$") {
-    $CleanVersion = "1.0.1"
+    throw 'version must have major.minor.patch format'
 }
 
-# MSI version: embed a day-stamp in the patch field (month*31+day = 32..403).
-# This makes every new build "newer" than the previous one so the installer
-# always replaces files on reinstall, even when the semver hasn't changed.
-# The user-facing filename keeps the clean semver (e.g. v1.0.1).
-$Major, $Minor = $CleanVersion -split '\.' | Select-Object -First 2
-$Now = Get-Date
-$DayStamp = $Now.Month * 31 + $Now.Day
-$MsiVersion = "$Major.$Minor.$DayStamp"
+# значение выше старых сборок с датой, затем растёт вместе с patch
+$Major, $Minor, $Patch = $CleanVersion -split '\.'
+$MsiPatch = 1000 + [int]$Patch
+if ($MsiPatch -gt 65535) { throw 'version patch is too large for MSI' }
+$MsiVersion = "$Major.$Minor.$MsiPatch"
 
 $BuildDir = Join-Path $Repo "build"
 $ToolsDir = Join-Path $BuildDir "tools"

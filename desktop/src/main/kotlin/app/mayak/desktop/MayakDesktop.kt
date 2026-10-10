@@ -12,6 +12,7 @@ import app.mayak.core.singbox.SingBoxConfigBuilder
 import app.mayak.core.singbox.SingBoxConfigSettings
 import com.formdev.flatlaf.FlatDarkLaf
 import java.awt.BasicStroke
+import java.awt.Toolkit
 import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Component
@@ -72,7 +73,10 @@ import app.mayak.desktop.MayakTheme as T
 
 fun main() {
     val store = DesktopProfileStore()
-    val state = store.load()
+    val state = runCatching { store.load() }.getOrElse {
+        JOptionPane.showMessageDialog(null, "Не удалось прочитать настройки. Исходный файл сохранён. Верните резервную копию profiles.json.bak в папке Маяка.", "Маяк", JOptionPane.ERROR_MESSAGE)
+        exitProcess(1)
+    }
     L.lang = state.language
 
     if (Platform.isWindows) {
@@ -109,6 +113,8 @@ fun main() {
     UIManager.put("Component.arc", 14)
     UIManager.put("Button.arc", 18)
     UIManager.put("ScrollBar.width", 8)
+    UIManager.put("PopupMenu.arc", 16)
+    UIManager.put("MenuItem.selectionBackground", T.BG_INPUT_HOVER)
     UIManager.put("ToolTip.background", Color(28, 38, 80))
     UIManager.put("ToolTip.foreground", Color(220, 230, 255))
     // скруглённые углы подсказок (FlatLaf рисует фон по форме рамки с arc)
@@ -178,7 +184,7 @@ class MayakDesktop(
     private val appIcon = ImageIcon(MayakDesktop::class.java.getResource("/icon.png")).image
     private val hero = LighthouseHero()
     private val xray = XrayProcess()
-    private val connectionModes by lazy { modeControls() }
+    private var settingsPanel: SettingsPanel? = null
     private val guidance = JLabel()
     private val connectionNotice = JLabel()
     private var lastConnectionError: String? = null
@@ -191,23 +197,13 @@ class MayakDesktop(
     private var trayOpenItem: MenuItem? = null
     private var trayExitItem: MenuItem? = null
 
-    private val btnSubscriptions = VectorIconButton(IconType.GLOBE, "").apply {
-        addActionListener { openSubscriptions() }
-    }
-    private val btnKeys = VectorIconButton(IconType.KEY, "").apply {
-        addActionListener { openKeys() }
-    }
-    private val btnSettings = VectorIconButton(IconType.GEAR, "").apply {
-        addActionListener { openSettings() }
-    }
-
     private lateinit var pingCard: JPanel
     private lateinit var downCard: JPanel
     private lateinit var upCard: JPanel
 
     private val statusDot = StatusDot()
     private val statusText = JLabel("Отключено")
-    private val keyChip = JButton()
+    private val keyChip = T.ghostButton("")
 
     private val mainBtn = primaryConnectButton()
 
@@ -226,25 +222,21 @@ class MayakDesktop(
         addActionListener { runPing(showProgress = true) }
     }
 
-    private val proxyModeBtn = JToggleButton("Proxy")
-    private val tunModeBtn = JToggleButton("TUN")
-    private val warpModeBtn = PillToggleButton("WARP")
-
     private val latencyProbe = LatencyProbe()
     private var trafficMonitor: TrafficMonitor? = null
     private val pingTimer = Timer(5000) { runPing() }
     private var pinging = false
     private var pingFailures = 0
     // перерисовывает дышащие элементы (точка статуса, свечение кнопки)
-    private val pulseTimer = Timer(50) { statusDot.repaint(); mainBtn.repaint() }
+    private val pulseTimer = Timer(80) { statusDot.repaint() }
 
     fun show() {
         val windowSize = initialWindowSize()
         frame = JFrame("Маяк").apply {
             defaultCloseOperation = JFrame.DO_NOTHING_ON_CLOSE
             minimumSize = Dimension(
-                minOf(680, windowSize.width),
-                minOf(620, windowSize.height)
+                minOf(560, windowSize.width),
+                minOf(560, windowSize.height)
             )
             preferredSize = windowSize
             iconImage = appIcon
@@ -258,9 +250,9 @@ class MayakDesktop(
                     if (!hideToTray()) shutdown()
                 }
                 override fun windowIconified(e: WindowEvent) {
-                    hero.pauseAnimation()
+                    hero.pauseAnimation(); pulseTimer.stop()
                 }
-                override fun windowDeiconified(e: WindowEvent) = hero.resumeAnimation()
+                override fun windowDeiconified(e: WindowEvent) { hero.resumeAnimation(); refresh() }
             })
             pack()
             // дефолтный размер фиксируем явно (pack ужал бы до preferred контента),
@@ -284,8 +276,8 @@ class MayakDesktop(
         val maxW = (bounds.width - 32).coerceAtLeast(640)
         val maxH = (bounds.height - 32).coerceAtLeast(520)
         // вытянутый по вертикали портрет, а не широкий ландшафт
-        val width = 780.coerceAtMost(maxW).coerceAtLeast(660.coerceAtMost(maxW))
-        val height = 830.coerceAtMost(maxH).coerceAtLeast(600.coerceAtMost(maxH))
+        val width = 640.coerceAtMost(maxW).coerceAtLeast(560.coerceAtMost(maxW))
+        val height = 700.coerceAtMost(maxH).coerceAtLeast(560.coerceAtMost(maxH))
         return Dimension(width, height)
     }
 
@@ -298,6 +290,22 @@ class MayakDesktop(
             }
         }.apply {
             isOpaque = true
+            componentPopupMenu = T.popupMenu().apply {
+                add(T.menuItem(L.t("Добавить доступ", "Add access"), ::openAddAccess))
+                add(T.menuItem(L.t("Серверы", "Servers"), ::openServers))
+                add(T.menuItem(L.t("Настройки", "Settings"), ::openSettings))
+            }
+            keyChip.componentPopupMenu = T.popupMenu().apply {
+                add(T.menuItem(L.t("Выбрать сервер", "Choose server"), ::openServers))
+                add(T.menuItem(L.t("Скопировать ссылку", "Copy link")) {
+                    state.activeProfile?.let { Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(it.source), null) }
+                })
+                add(T.menuItem(L.t("Добавить доступ", "Add access"), ::openAddAccess))
+            }
+            mainBtn.componentPopupMenu = componentPopupMenu
+            addAccessButton.componentPopupMenu = componentPopupMenu
+            serversButton.componentPopupMenu = componentPopupMenu
+            settingsButton.componentPopupMenu = componentPopupMenu
             add(topBar(), BorderLayout.NORTH)
             add(JScrollPane(centerStack()).apply {
                 border = null
@@ -310,7 +318,7 @@ class MayakDesktop(
 
     private fun topBar(): JPanel = JPanel(BorderLayout()).apply {
         isOpaque = false
-        border = EmptyBorder(18, 28, 12, 28)
+        border = EmptyBorder(12, 20, 8, 20)
         add(JLabel("Маяк").apply { foreground = T.TEXT; font = font.deriveFont(Font.BOLD, 22f) }, BorderLayout.WEST)
         add(JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
             isOpaque = false
@@ -327,11 +335,11 @@ class MayakDesktop(
     }.apply {
         isOpaque = false
         layout = BoxLayout(this, BoxLayout.Y_AXIS)
-        border = EmptyBorder(0, 28, 24, 28)
+        border = EmptyBorder(0, 20, 18, 20)
         hero.alignmentX = Component.CENTER_ALIGNMENT
-        hero.preferredSize = Dimension(700, 340)
-        hero.minimumSize = Dimension(0, 240)
-        hero.maximumSize = Dimension(Int.MAX_VALUE, 400)
+        hero.preferredSize = Dimension(600, 290)
+        hero.minimumSize = Dimension(0, 200)
+        hero.maximumSize = Dimension(Int.MAX_VALUE, 310)
         add(hero)
         add(Box.createVerticalStrut(20))
         add(statusRow())
@@ -347,7 +355,7 @@ class MayakDesktop(
         add(Box.createVerticalStrut(16))
         keyChip.apply {
             isOpaque = false; isContentAreaFilled = false
-            isFocusPainted = true; foreground = T.TEXT_DIM
+            foreground = T.TEXT_DIM
             font = font.deriveFont(Font.BOLD, 13f)
             border = EmptyBorder(14, 20, 14, 20)
             alignmentX = Component.CENTER_ALIGNMENT
@@ -382,7 +390,7 @@ class MayakDesktop(
         add(Box.createHorizontalGlue())
         add(statusDot)
         add(Box.createHorizontalStrut(10))
-        add(statusText.apply { foreground = T.TEXT; font = font.deriveFont(Font.BOLD, 28f) })
+        add(statusText.apply { foreground = T.TEXT; font = font.deriveFont(Font.BOLD, 24f) })
         add(Box.createHorizontalGlue())
     }
 
@@ -438,115 +446,12 @@ class MayakDesktop(
         add(Box.createVerticalGlue())
     }
 
-    private fun modeControls(): JPanel = JPanel().apply {
-        isOpaque = false
-        layout = BoxLayout(this, BoxLayout.X_AXIS)
-        alignmentX = Component.CENTER_ALIGNMENT
-
-        val seg = ModeSegment(proxyModeBtn, tunModeBtn) { mode ->
-            if (refreshing) return@ModeSegment
-            val wasConnected = connected
-            state = state.copy(inboundMode = mode)
-            // тяжёлый persist/refresh откладываем на следующий тик EDT, чтобы
-            // не блокировать первые кадры анимации пилюли (иначе рывок на старте)
-            SwingUtilities.invokeLater {
-                persist()
-                refresh()
-                if (wasConnected) reconnectAfterModeChange()
-            }
-        }
-        proxyModeBtn.toolTipText =
-            L.t("<html><b>Proxy</b> — VPN только для браузера и приложений с поддержкой прокси.<br>" +
-                "Работает без админских прав. Через 127.0.0.1:$PROXY_PORT.</html>",
-                "<html><b>Proxy</b> — VPN only for browser and proxy-aware apps.<br>" +
-                "Works without admin privileges. Via 127.0.0.1:$PROXY_PORT.</html>")
-        tunModeBtn.toolTipText =
-            L.t("<html><b>TUN</b> — VPN для всей системы, включая игры и любые приложения.<br>" +
-                "Требует запуск от администратора.</html>",
-                "<html><b>TUN</b> — VPN for the entire system, including games and all apps.<br>" +
-                "Requires admin privileges.</html>")
-        warpModeBtn.toolTipText =
-            L.t("<html><b>WARP</b> — отдельный маршрут для Google / Gemini.<br>" +
-                "Если Gemini не открывается через основной сервер, включи этот режим.</html>",
-                "<html><b>WARP</b> — separate routing for Google / Gemini.<br>" +
-                "Enable this if Gemini does not open via the main server.</html>")
-        styleWarpButton()
-        warpModeBtn.addActionListener {
-            if (refreshing) return@addActionListener
-            handleWarpClick()
-        }
-
-        add(seg)
-        add(Box.createHorizontalStrut(10))
-        add(warpModeBtn)
-    }
-
-    private fun primaryConnectButton(): JButton {
-        return object : JButton(L.t("Подключить", "Connect")) {
-            var hoverProgress = 0f
-            val animator = HoverAnimator(this) { hoverProgress = it }
-            init {
-                isOpaque = false
-                isContentAreaFilled = false
-                isBorderPainted = false
-                isFocusPainted = false
-                font = font.deriveFont(Font.BOLD, 16f)
-                foreground = Color.WHITE
-                cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-                // запас 8px со всех сторон под внешнее свечение
-                preferredSize = Dimension(316, 70)
-                maximumSize = Dimension(316, 70)
-                minimumSize = Dimension(316, 70)
-                addActionListener { toggleConnect() }
-                addMouseListener(object : MouseAdapter() {
-                    override fun mouseEntered(e: MouseEvent) { animator.setTarget(1f) }
-                    override fun mouseExited(e: MouseEvent) { animator.setTarget(0f) }
-                })
-            }
-            var pressed = false
-            override fun paintComponent(g: Graphics) {
-                val g2 = g as Graphics2D
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-                val base = when {
-                    connecting || disconnecting -> T.WARN
-                    connected -> T.SUCCESS
-                    else -> T.ACCENT
-                }
-                val pad = 8
-                val yOff = if (pressed) 2 else 0
-                val bw = width - pad * 2
-                val bh = height - pad * 2
-
-                if (connected || connecting || disconnecting) {
-                    val phase = ((1 + sin(System.currentTimeMillis() / 280.0)) / 2).toFloat()
-                    val glowA = 20 + (18 * phase).toInt()
-                    g2.stroke = BasicStroke(2f)
-                    for (i in 1..4) {
-                        g2.color = Color(base.red, base.green, base.blue, glowA / i)
-                        g2.drawRoundRect(pad - i * 2, pad + yOff - i * 2,
-                            bw + i * 4 - 1, bh - yOff + i * 4 - 1, 22 + i * 2, 22 + i * 2)
-                    }
-                }
-
-                val color = mix(base, base.brighter(), hoverProgress)
-                g2.color = Color(0, 0, 0, 52)
-                g2.fillRoundRect(pad + 2, pad + 5, bw - 4, bh - 5, 22, 22)
-                g2.paint = GradientPaint(0f, (pad + yOff).toFloat(), color, 0f, (pad + bh).toFloat(), base.darker())
-                g2.fillRoundRect(pad, pad + yOff, bw, bh - yOff - 1, 22, 22)
-                g2.color = Color(color.red, color.green, color.blue, 90 + (60 * hoverProgress).toInt())
-                g2.stroke = BasicStroke(2f)
-                g2.drawRoundRect(pad + 1, pad + yOff + 1, bw - 3, bh - yOff - 3, 22, 22)
-                super.paintComponent(g)
-            }
-            override fun processMouseEvent(e: MouseEvent) {
-                when (e.id) {
-                    MouseEvent.MOUSE_PRESSED -> pressed = true
-                    MouseEvent.MOUSE_RELEASED, MouseEvent.MOUSE_EXITED -> pressed = false
-                }
-                super.processMouseEvent(e)
-                repaint()
-            }
-        }
+    private fun primaryConnectButton() = T.accentButton(L.t("Подключить", "Connect")).apply {
+        preferredSize = Dimension(276, 56)
+        minimumSize = Dimension(240, 56)
+        maximumSize = Dimension(276, 56)
+        font = font.deriveFont(Font.BOLD, 15f)
+        addActionListener { toggleConnect() }
     }
 
     private fun toggleConnect() {
@@ -557,11 +462,7 @@ class MayakDesktop(
     }
 
     private fun showKeyPicker(anchor: Component) {
-        val menu = JPopupMenu().apply {
-            background = T.CARD_SOLID
-            border = BorderFactory.createLineBorder(T.BORDER, 1)
-            isOpaque = true
-        }
+        val menu = T.popupMenu()
         fun item(text: String, selected: Boolean = false, muted: Boolean = false, action: () -> Unit): JMenuItem {
             return JMenuItem(text).apply {
                 isOpaque = true
@@ -594,19 +495,6 @@ class MayakDesktop(
             menu.add(item(L.t("Добавить доступ", "Add access"), muted = true) { openAddAccess() })
         }
         menu.show(anchor, 0, anchor.height + 4)
-    }
-
-    private fun styleWarpButton() {
-        warpModeBtn.isOpaque = false
-        warpModeBtn.isContentAreaFilled = false
-        warpModeBtn.isBorderPainted = false
-        warpModeBtn.isFocusPainted = false
-        warpModeBtn.border = EmptyBorder(0, 14, 0, 14)
-        warpModeBtn.preferredSize = Dimension(104, 40)
-        warpModeBtn.maximumSize = Dimension(104, 40)
-        warpModeBtn.minimumSize = Dimension(104, 40)
-        warpModeBtn.font = warpModeBtn.font.deriveFont(Font.BOLD, 13f)
-        warpModeBtn.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
     }
 
     private fun openAddAccess() {
@@ -649,8 +537,7 @@ class MayakDesktop(
         }.isVisible = true
     }
 
-    private fun handleWarpClick() {
-        val enabled = warpModeBtn.isSelected
+    private fun handleWarpClick(enabled: Boolean) {
         val wasConnected = connected
         state = state.copy(warpEnabled = enabled)
         persist()
@@ -697,247 +584,29 @@ class MayakDesktop(
 
     private fun openSettings() {
         val dlg = JDialog(frame, L.t("Настройки", "Settings"), true)
-        val content = object : JPanel() {
-            override fun paintComponent(g: Graphics) {
-                g.color = T.BG_BOT; g.fillRect(0, 0, width, height)
-            }
-        }.apply {
-            isOpaque = true
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = EmptyBorder(20, 22, 20, 22)
-        }
-
-        content.add(JLabel(L.t("Настройки", "Settings")).apply {
-            foreground = T.TEXT; font = font.deriveFont(Font.BOLD, 20f); alignmentX = 0f
+        val panel = SettingsPanel({ state }, { updated ->
+            val old = state
+            val reconnect = connected && (old.dnsMode != updated.dnsMode || old.ipv6Enabled != updated.ipv6Enabled || old.inboundMode != updated.inboundMode)
+            state = updated
+            L.lang = updated.language
+            persist(); refresh(); syncTrayIcon()
+            if (reconnect) reconnectAfterModeChange()
+            if (old.language != updated.language) { dlg.dispose(); openSettings() }
+        }, { enabled ->
+            handleWarpClick(enabled)
+        }, { openRoutingSettings(dlg) }, {
+            runCatching { systemProxy.restore() }.onFailure { showError(L.t("Не удалось восстановить прокси.", "Could not restore proxy.")) }
+        }, ::openLog, { dlg.dispose() }, isTraySupported())
+        settingsPanel = panel
+        panel.setWarpBusy(registeringWarp)
+        dlg.contentPane = panel
+        val bounds = GraphicsEnvironment.getLocalGraphicsEnvironment().maximumWindowBounds
+        dlg.size = Dimension(560.coerceAtMost(bounds.width - 24), 700.coerceAtMost(bounds.height - 32))
+        dlg.minimumSize = Dimension(500, 420)
+        dlg.rootPane.registerKeyboardAction({ dlg.dispose() }, javax.swing.KeyStroke.getKeyStroke("ESCAPE"), JComponent.WHEN_IN_FOCUSED_WINDOW)
+        dlg.addWindowListener(object : WindowAdapter() {
+            override fun windowClosed(e: WindowEvent) { if (settingsPanel === panel) settingsPanel = null }
         })
-        content.add(Box.createVerticalStrut(14))
-        content.add(JLabel(L.t("Где использовать VPN", "Where to use VPN")).apply {
-            foreground = T.TEXT; font = font.deriveFont(Font.BOLD, 14f); alignmentX = 0f
-        })
-        content.add(Box.createVerticalStrut(10))
-        content.add(connectionModes)
-        content.add(Box.createVerticalStrut(10))
-        content.add(JLabel(L.t("Весь компьютер: нужен запуск от администратора.", "Whole computer requires administrator access.")).apply {
-            foreground = T.MUTED; alignmentX = 0f
-        })
-        content.add(Box.createVerticalStrut(20))
-
-        val dnsBox = JComboBox(DnsMode.entries.toTypedArray()).apply {
-            background = T.BG_INPUT; foreground = T.TEXT
-            selectedItem = state.dnsMode
-            preferredSize = Dimension(130, 26)
-            maximumSize = Dimension(130, 26)
-            addActionListener {
-                val updated = selectedItem as DnsMode
-                if (updated != state.dnsMode) {
-                    val wasConnected = connected
-                    state = state.copy(dnsMode = updated)
-                    persist()
-                    if (wasConnected) reconnectAfterModeChange()
-                }
-            }
-        }
-        val ipv6Box = JCheckBox().apply {
-            isOpaque = false
-            isSelected = state.ipv6Enabled
-            addActionListener {
-                val wasConnected = connected
-                state = state.copy(ipv6Enabled = isSelected)
-                persist()
-                if (wasConnected) reconnectAfterModeChange()
-            }
-        }
-        val trayBox = JCheckBox().apply {
-            isOpaque = false
-            isSelected = state.trayEnabled
-            isEnabled = isTraySupported()
-            toolTipText = if (isEnabled) {
-                L.t("При закрытии окно скроется, а анимация остановится.", "On close, the window will hide, and animation will pause.")
-            } else {
-                L.t("Системный трей недоступен.", "System tray is unavailable.")
-            }
-            addActionListener {
-                state = state.copy(trayEnabled = isSelected)
-                persist()
-                syncTrayIcon()
-            }
-        }
-        val langBox = JComboBox(AppLanguage.entries.toTypedArray()).apply {
-            background = T.BG_INPUT; foreground = T.TEXT
-            selectedItem = state.language
-            preferredSize = Dimension(130, 26)
-            maximumSize = Dimension(130, 26)
-            addActionListener {
-                val newLang = selectedItem as AppLanguage
-                if (newLang != state.language) {
-                    state = state.copy(language = newLang)
-                    L.lang = newLang
-                    persist()
-                    dlg.dispose()
-                    refresh()
-                    openSettings()
-                }
-            }
-        }
-
-        fun settingRow(titleText: String, descText: String, control: JComponent): JPanel = JPanel(BorderLayout(14, 0)).apply {
-            isOpaque = false
-            border = EmptyBorder(6, 4, 6, 4)
-            val info = JPanel().apply {
-                isOpaque = false
-                layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                add(JLabel(titleText).apply {
-                    foreground = T.TEXT
-                    font = font.deriveFont(Font.BOLD, 12f)
-                    alignmentX = 0f
-                })
-                add(Box.createVerticalStrut(1))
-                add(JLabel(descText).apply {
-                    foreground = T.MUTED
-                    font = font.deriveFont(Font.PLAIN, 10f)
-                    alignmentX = 0f
-                })
-            }
-            add(info, BorderLayout.CENTER)
-            val rightWrap = JPanel(BorderLayout()).apply {
-                isOpaque = false
-                border = EmptyBorder(4, 0, 4, 0)
-                add(control, BorderLayout.CENTER)
-            }
-            add(rightWrap, BorderLayout.EAST)
-        }
-
-        val card = T.card().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            alignmentX = 0f
-            border = EmptyBorder(12, 14, 12, 14)
-            add(settingRow(
-                L.t("DNS сервер", "DNS Server"),
-                L.t("DNS-сервер для VPN (Cloudflare/Google)", "DNS server for VPN (Cloudflare/Google)"),
-                dnsBox
-            ))
-            add(Box.createVerticalStrut(4))
-            add(settingRow(
-                L.t("Протокол IPv6", "IPv6 Support"),
-                L.t("Включить поддержку IPv6 адресов", "Enable IPv6 address support"),
-                ipv6Box
-            ))
-            add(Box.createVerticalStrut(4))
-            add(settingRow(
-                L.t("Сворачивать в трей", "Minimize to Tray"),
-                L.t("Закрывать окно в системный трей", "Hide window in system tray on close"),
-                trayBox
-            ))
-            add(Box.createVerticalStrut(4))
-            add(settingRow(
-                L.t("Язык интерфейса", "Interface Language"),
-                L.t("Выберите язык интерфейса приложения", "Select interface language for application"),
-                langBox
-            ))
-        }
-        content.add(card)
-
-        content.add(Box.createVerticalStrut(14))
-
-        val routingCard = T.card().apply {
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
-            alignmentX = 0f
-            maximumSize = Dimension(Int.MAX_VALUE, 72)
-            add(JPanel().apply {
-                isOpaque = false
-                layout = BoxLayout(this, BoxLayout.Y_AXIS)
-                add(JLabel(L.t("Маршрутизация", "Routing")).apply {
-                    foreground = T.TEXT
-                    font = font.deriveFont(Font.BOLD, 12f)
-                    alignmentX = 0f
-                })
-                add(JLabel(L.t(
-                    "домены, сети, процессы и WARP",
-                    "domains, networks, processes and WARP"
-                )).apply {
-                    foreground = T.MUTED
-                    font = font.deriveFont(Font.PLAIN, 11f)
-                    alignmentX = 0f
-                })
-            })
-            add(Box.createHorizontalGlue())
-            add(T.ghostButton(L.t("Настроить", "Configure")).apply {
-                addActionListener { openRoutingSettings(dlg) }
-                preferredSize = Dimension(150, 36)
-                maximumSize = Dimension(150, 36)
-            })
-        }
-        content.add(routingCard)
-
-        content.add(Box.createVerticalStrut(10))
-
-        val restoreCard = T.card().apply {
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
-            alignmentX = 0f
-            maximumSize = Dimension(Int.MAX_VALUE, 72)
-        }
-        val restoreText = JPanel().apply {
-            isOpaque = false
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            add(JLabel(L.t("Восстановить системный прокси", "Restore system proxy")).apply {
-                foreground = T.TEXT; font = font.deriveFont(Font.BOLD, 12f); alignmentX = 0f
-            })
-            add(JLabel(L.t("если интернет пропал после отключения VPN", "if internet connection is lost after disconnecting VPN")).apply {
-                foreground = T.MUTED; font = font.deriveFont(Font.PLAIN, 11f); alignmentX = 0f
-            })
-        }
-        restoreCard.add(restoreText)
-        restoreCard.add(Box.createHorizontalGlue())
-        restoreCard.add(T.ghostButton(L.t("Вернуть proxy", "Restore proxy")).apply {
-            addActionListener { systemProxy.restore() }
-            preferredSize = Dimension(150, 36)
-            maximumSize = Dimension(150, 36)
-        })
-        content.add(restoreCard)
-
-        content.add(Box.createVerticalStrut(10))
-
-        val logCard = T.card().apply {
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
-            alignmentX = 0f
-            maximumSize = Dimension(Int.MAX_VALUE, 72)
-        }
-        val logText = JPanel().apply {
-            isOpaque = false
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            add(JLabel(L.t("Журнал sing-box", "sing-box Log")).apply {
-                foreground = T.TEXT; font = font.deriveFont(Font.BOLD, 12f); alignmentX = 0f
-            })
-            add(JLabel(L.t("технический лог для диагностики", "technical log for diagnostic purposes")).apply {
-                foreground = T.MUTED; font = font.deriveFont(Font.PLAIN, 11f); alignmentX = 0f
-            })
-        }
-        logCard.add(logText)
-        logCard.add(Box.createHorizontalGlue())
-        logCard.add(T.ghostButton(L.t("Открыть", "Open")).apply {
-            addActionListener { openLog() }
-            preferredSize = Dimension(150, 36)
-            maximumSize = Dimension(150, 36)
-        })
-        content.add(logCard)
-
-        content.add(Box.createVerticalGlue())
-        content.add(Box.createVerticalStrut(18))
-        val closeRow = JPanel().apply {
-            isOpaque = false
-            layout = BoxLayout(this, BoxLayout.X_AXIS)
-            alignmentX = 0f
-            maximumSize = Dimension(Int.MAX_VALUE, 40)
-            add(Box.createHorizontalGlue())
-            add(T.accentButton(L.t("Готово", "Done")).apply {
-                preferredSize = Dimension(140, 36)
-                addActionListener { dlg.dispose() }
-            })
-        }
-        content.add(closeRow)
-
-        dlg.contentPane = content
-        dlg.size = Dimension(520, 660)
         dlg.setLocationRelativeTo(frame)
         dlg.isVisible = true
     }
@@ -1317,10 +986,6 @@ class MayakDesktop(
         refreshing = true
         try {
             // Dynamic translation updates
-            btnSubscriptions.toolTipText = L.t("Подписки", "Subscriptions")
-            btnKeys.toolTipText = L.t("Управление ключами", "Key Management")
-            btnSettings.toolTipText = L.t("Настройки", "Settings")
-
             pingLabel.text = L.t("Задержка", "Latency")
             downLabel.text = L.t("Загрузка", "Download")
             upLabel.text = L.t("Отправка", "Upload")
@@ -1346,25 +1011,6 @@ class MayakDesktop(
                     "<html>Current upload speed (outgoing traffic).<br>Updates every second.</html>"
                 )
             }
-
-            proxyModeBtn.toolTipText = L.t(
-                "<html><b>Proxy</b> — VPN только для браузера и приложений с поддержкой прокси.<br>" +
-                "Работает без админских прав. Через 127.0.0.1:$PROXY_PORT.</html>",
-                "<html><b>Proxy</b> — VPN only for browser and proxy-aware apps.<br>" +
-                "Works without admin privileges. Via 127.0.0.1:$PROXY_PORT.</html>"
-            )
-            tunModeBtn.toolTipText = L.t(
-                "<html><b>TUN</b> — VPN для всей системы, включая игры и любые приложения.<br>" +
-                "Требует запуск от администратора.</html>",
-                "<html><b>TUN</b> — VPN for the entire system, including games and all apps.<br>" +
-                "Requires admin privileges.</html>"
-            )
-            warpModeBtn.toolTipText = L.t(
-                "<html><b>WARP</b> — отдельный маршрут для Google / Gemini.<br>" +
-                "Если Gemini не открывается через основной сервер, включи этот режим.</html>",
-                "<html><b>WARP</b> — separate routing for Google / Gemini.<br>" +
-                "Enable this if Gemini does not open via the main server.</html>"
-            )
 
             when {
                 registeringWarp -> {
@@ -1406,20 +1052,24 @@ class MayakDesktop(
                     mainBtn.text = L.t("Подключить", "Connect")
                 }
             }
+            mainBtn.tone = when {
+                connecting || disconnecting || registeringWarp -> ButtonTone.WARNING
+                connected -> ButtonTone.SUCCESS
+                else -> ButtonTone.PRIMARY
+            }
+            settingsPanel?.apply { sync(state); setWarpBusy(registeringWarp) }
             mainBtn.isEnabled = !registeringWarp && !disconnecting
             mainBtn.repaint()
             mainBtn.accessibleContext.accessibleName = mainBtn.text
 
             val pulse = connected || connecting || disconnecting || registeringWarp
             statusDot.pulsing = pulse
-            if (pulse) { if (!pulseTimer.isRunning) pulseTimer.start() } else pulseTimer.stop()
+            if (pulse && ::frame.isInitialized && frame.isShowing && frame.extendedState and JFrame.ICONIFIED == 0) { if (!pulseTimer.isRunning) pulseTimer.start() } else pulseTimer.stop()
 
             val active = state.activeProfile
             addAccessButton.text = L.t("Добавить доступ", "Add access")
             serversButton.text = L.t("Серверы", "Servers")
             settingsButton.text = L.t("Настройки", "Settings")
-            proxyModeBtn.text = L.t("Браузер", "Browser")
-            tunModeBtn.text = L.t("Весь компьютер", "Whole computer")
             if (active == null && !connecting && !connected) {
                 statusText.text = L.t("Добавьте ваш VPN", "Add your VPN")
                 mainBtn.text = L.t("Добавить доступ", "Add access")
@@ -1447,18 +1097,7 @@ class MayakDesktop(
                 "  ${active.name}  ▾"
             } else L.t("Выбрать сервер", "Choose server")
 
-            when (state.inboundMode) {
-                InboundMode.Mixed -> proxyModeBtn.isSelected = true
-                InboundMode.Tun -> tunModeBtn.isSelected = true
-            }
-            proxyModeBtn.repaint(); tunModeBtn.repaint()
-            warpModeBtn.isSelected = state.warpEnabled
-            warpModeBtn.text = if (registeringWarp) "..." else "WARP"
-            warpModeBtn.isEnabled = !registeringWarp
-            warpModeBtn.background = if (warpModeBtn.isSelected) T.ACCENT else T.BG_INPUT
-            warpModeBtn.foreground = if (warpModeBtn.isSelected) Color.WHITE else T.MUTED
             pingTestBtn.isEnabled = active != null && !pinging
-            warpModeBtn.repaint()
         } finally {
             refreshing = false
         }
@@ -1476,6 +1115,7 @@ class MayakDesktop(
         if (trayIcon == null) return false
         frame.isVisible = false
         hero.pauseAnimation()
+        pulseTimer.stop()
         showTrayNoticeOnce()
         return true
     }
@@ -1498,6 +1138,7 @@ class MayakDesktop(
         frame.toFront()
         frame.requestFocus()
         hero.resumeAnimation()
+        refresh()
     }
 
     private fun syncTrayIcon() {
@@ -1663,123 +1304,6 @@ class MayakDesktop(
             }
             g2.color = c
             g2.fill(Ellipse2D.Float(cx - 3.5f, cy - 3.5f, 7f, 7f))
-        }
-    }
-
-    /** Visual frame around the key chip button. */
-    private class KeyChipFrame(private val btn: JButton) : JPanel() {
-        private var hoverProgress = 0f
-        private val animator = HoverAnimator(this) { hoverProgress = it }
-
-        init {
-            isOpaque = false
-            layout = BorderLayout()
-            add(btn, BorderLayout.CENTER)
-            maximumSize = Dimension(280, 32)
-            preferredSize = Dimension(220, 32)
-            btn.addMouseListener(object : MouseAdapter() {
-                override fun mouseEntered(e: MouseEvent) { animator.setTarget(1f) }
-                override fun mouseExited(e: MouseEvent) { animator.setTarget(0f) }
-            })
-        }
-        override fun paintComponent(g: Graphics) {
-            val g2 = g as Graphics2D
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-
-            // Background color interpolation
-            val bgStart = T.BG_INPUT
-            val bgEnd = T.BG_INPUT_HOVER
-            val r = bgStart.red + ((bgEnd.red - bgStart.red) * hoverProgress).toInt()
-            val gDec = bgStart.green + ((bgEnd.green - bgStart.green) * hoverProgress).toInt()
-            val b = bgStart.blue + ((bgEnd.blue - bgStart.blue) * hoverProgress).toInt()
-            g2.color = Color(r, gDec, b)
-            g2.fillRoundRect(0, 0, width, height, 18, 18)
-
-            // Border color interpolation
-            val borderStart = T.BORDER
-            val borderEnd = T.ACCENT
-            val br = borderStart.red + ((borderEnd.red - borderStart.red) * hoverProgress).toInt()
-            val bgBorder = borderStart.green + ((borderEnd.green - borderStart.green) * hoverProgress).toInt()
-            val bb = borderStart.blue + ((borderEnd.blue - borderStart.blue) * hoverProgress).toInt()
-            g2.color = Color(br, bgBorder, bb)
-            g2.stroke = BasicStroke(1f)
-            g2.drawRoundRect(0, 0, width - 1, height - 1, 18, 18)
-        }
-    }
-
-    private class PillToggleButton(text: String) : JToggleButton(text) {
-        override fun paintComponent(g: Graphics) {
-            val g2 = g as Graphics2D
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            val active = isSelected
-            val hover = model.isRollover
-            val top = when {
-                active -> T.ACCENT_HOVER
-                hover -> T.BG_INPUT_HOVER
-                else -> T.BG_INPUT
-            }
-            val bottom = when {
-                active -> T.ACCENT
-                hover -> T.BG_INPUT
-                else -> T.BG_INPUT.darker()
-            }
-            T.softFill(g2, width, height, top, bottom, 18)
-            g2.color = if (active) T.ACCENT_LIGHT else T.BORDER_SOFT
-            g2.drawRoundRect(0, 0, width - 1, height - 1, 18, 18)
-            super.paintComponent(g)
-        }
-    }
-
-    private inner class ModeSegment(
-        private val a: JToggleButton,
-        private val b: JToggleButton,
-        onChange: (InboundMode) -> Unit
-    ) : JPanel() {
-        init {
-            isOpaque = false
-            layout = GridLayout(1, 2, 0, 0)
-            preferredSize = Dimension(300, 40)
-            maximumSize = Dimension(300, 40)
-            minimumSize = Dimension(300, 40)
-            ButtonGroup().apply { add(a); add(b) }
-            styleToggle(a); styleToggle(b)
-            add(a); add(b)
-            a.addActionListener { if (a.isSelected) { refreshChips(); onChange(InboundMode.Mixed) } }
-            b.addActionListener { if (b.isSelected) { refreshChips(); onChange(InboundMode.Tun) } }
-        }
-        // 0 - пилюля на левой кнопке, 1 - на правой
-        private var pillPos = 0f
-        private val pillAnim = HoverAnimator(this, 260) { pillPos = it }
-        private fun styleToggle(t: JToggleButton) {
-            t.isOpaque = false
-            t.isContentAreaFilled = false
-            t.isBorderPainted = false
-            t.isFocusPainted = false
-            t.foreground = T.MUTED
-            t.font = t.font.deriveFont(Font.BOLD, 13f)
-            t.cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            t.addChangeListener {
-                t.foreground = if (t.isSelected) Color.WHITE else T.MUTED
-                pillAnim.setTarget(if (b.isSelected) 1f else 0f)
-                t.repaint()
-            }
-        }
-        private fun refreshChips() { a.repaint(); b.repaint() }
-        override fun paintComponent(g: Graphics) {
-            val g2 = g as Graphics2D
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            g2.color = T.BG_INPUT
-            g2.fillRoundRect(0, 0, width, height, 18, 18)
-            val w2 = width / 2
-            val selX = 2 + Math.round(pillPos * w2)
-            val pill = g2.create(selX, 2, w2 - 4, height - 4) as Graphics2D
-            try {
-                T.softFill(pill, w2 - 4, height - 4, T.ACCENT_HOVER, T.ACCENT, 16)
-            } finally {
-                pill.dispose()
-            }
-            g2.color = T.BORDER
-            g2.drawRoundRect(0, 0, width - 1, height - 1, 18, 18)
         }
     }
 

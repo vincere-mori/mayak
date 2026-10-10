@@ -41,87 +41,19 @@ object MayakTheme {
     val WARN = Color(251, 191, 36)
     val DANGER = Color(248, 113, 113)
 
-    fun accentButton(text: String) = object : JButton(text) {
-        var hoverProgress = 0f
-        val animator = HoverAnimator(this) { hoverProgress = it }
-        init {
-            isOpaque = false
-            isContentAreaFilled = false
-            isFocusPainted = true
-            foreground = Color.WHITE
-            font = font.deriveFont(Font.BOLD, 13f)
-            border = BorderFactory.createEmptyBorder(8, 20, 8, 20)
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            addMouseListener(object : MouseAdapter() {
-                override fun mouseEntered(e: MouseEvent) { animator.setTarget(1f) }
-                override fun mouseExited(e: MouseEvent) { animator.setTarget(0f) }
-            })
-        }
-        override fun paintComponent(g: Graphics) {
-            val g2 = g as Graphics2D
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-            val bgStart = ACCENT
-            val bgEnd = ACCENT_HOVER
-            val r = bgStart.red + ((bgEnd.red - bgStart.red) * hoverProgress).toInt()
-            val gDec = bgStart.green + ((bgEnd.green - bgStart.green) * hoverProgress).toInt()
-            val b = bgStart.blue + ((bgEnd.blue - bgStart.blue) * hoverProgress).toInt()
-            g2.color = Color(r, gDec, b)
-            val arc = 18
-            g2.fillRoundRect(0, 0, width, height, arc, arc)
-            super.paintComponent(g)
-        }
+    fun accentButton(text: String) = MotionButton(text, ButtonTone.PRIMARY)
+    fun ghostButton(text: String) = MotionButton(text, ButtonTone.SECONDARY)
+
+    fun popupMenu() = javax.swing.JPopupMenu().apply {
+        background = CARD_SOLID
+        border = com.formdev.flatlaf.ui.FlatLineBorder(java.awt.Insets(6, 6, 6, 6), BORDER, 1f, 16)
     }
 
-    fun ghostButton(text: String) = object : JButton(text) {
-        var hoverProgress = 0f
-        val animator = HoverAnimator(this) { hoverProgress = it }
-        init {
-            isOpaque = false
-            isContentAreaFilled = false
-            isFocusPainted = true
-            foreground = TEXT_DIM
-            font = font.deriveFont(Font.BOLD, 12f)
-            border = BorderFactory.createEmptyBorder(9, 15, 9, 15)
-            cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            addMouseListener(object : MouseAdapter() {
-                override fun mouseEntered(e: MouseEvent) { animator.setTarget(1f) }
-                override fun mouseExited(e: MouseEvent) { animator.setTarget(0f) }
-            })
-        }
-        override fun paintComponent(g: Graphics) {
-            val g2 = g as Graphics2D
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-
-            // Interpolate background color
-            val bgStart = BG_INPUT
-            val bgEnd = BG_INPUT_HOVER
-            val r = bgStart.red + ((bgEnd.red - bgStart.red) * hoverProgress).toInt()
-            val gDec = bgStart.green + ((bgEnd.green - bgStart.green) * hoverProgress).toInt()
-            val b = bgStart.blue + ((bgEnd.blue - bgStart.blue) * hoverProgress).toInt()
-            g2.color = Color(r, gDec, b)
-            val arc = 16
-            g2.fillRoundRect(0, 0, width, height, arc, arc)
-
-            // Interpolate border color
-            val borderStart = BORDER_SOFT
-            val borderEnd = BORDER
-            val br = borderStart.red + ((borderEnd.red - borderStart.red) * hoverProgress).toInt()
-            val bgBorder = borderStart.green + ((borderEnd.green - borderStart.green) * hoverProgress).toInt()
-            val bb = borderStart.blue + ((borderEnd.blue - borderStart.blue) * hoverProgress).toInt()
-            g2.color = Color(br, bgBorder, bb)
-            g2.stroke = BasicStroke(1f)
-            g2.drawRoundRect(0, 0, width - 1, height - 1, arc, arc)
-
-            // Interpolate text color
-            val textStart = TEXT_DIM
-            val textEnd = TEXT
-            val tr = textStart.red + ((textEnd.red - textStart.red) * hoverProgress).toInt()
-            val tg = textStart.green + ((textEnd.green - textStart.green) * hoverProgress).toInt()
-            val tb = textStart.blue + ((textEnd.blue - textStart.blue) * hoverProgress).toInt()
-            foreground = Color(tr, tg, tb)
-
-            super.paintComponent(g)
-        }
+    fun menuItem(text: String, action: () -> Unit) = javax.swing.JMenuItem(text).apply {
+        foreground = TEXT; background = CARD_SOLID
+        font = font.deriveFont(13f)
+        border = EmptyBorder(10, 12, 10, 12)
+        addActionListener { action() }
     }
 
     fun iconButton(glyph: String, tip: String) = JButton(glyph).apply {
@@ -301,7 +233,7 @@ class VectorIconButton(val type: IconType, tip: String) : JButton() {
 }
 
 class HoverAnimator(
-    private val component: javax.swing.JComponent,
+    private val component: JComponent,
     private val durationMs: Int = 150,
     private val onUpdate: (Float) -> Unit
 ) {
@@ -311,34 +243,33 @@ class HoverAnimator(
     private var target = 0f
     private var startProgress = 0f
     private var startTimeNanos = 0L
+    val running: Boolean get() = timer?.isRunning == true
 
-    fun setTarget(newTarget: Float) {
-        val next = newTarget.coerceIn(0f, 1f)
-        if (target == next && timer?.isRunning == true) return
-        if (progress == next) return
+    init {
+        component.addHierarchyListener {
+            if (it.changeFlags and java.awt.event.HierarchyEvent.DISPLAYABILITY_CHANGED.toLong() != 0L && !component.isDisplayable) stop()
+        }
+    }
+
+    fun setTarget(value: Float) {
+        val next = value.coerceIn(0f, 1f)
+        if (target == next && running) return
         target = next
+        if (progress == next) { stop(); return }
         startProgress = progress
         startTimeNanos = System.nanoTime()
         if (timer == null) {
             timer = javax.swing.Timer(16) {
-                val elapsedMs = (System.nanoTime() - startTimeNanos) / 1_000_000f
-                val t = (elapsedMs / durationMs).coerceIn(0f, 1f)
-                val eased = if (t < 0.5f) {
-                    4f * t * t * t
-                } else {
-                    1f - (-2f * t + 2f).let { it * it * it } / 2f
-                }
+                val elapsed = (System.nanoTime() - startTimeNanos) / 1_000_000f
+                val t = (elapsed / durationMs.coerceAtLeast(1)).coerceIn(0f, 1f)
+                val eased = 1f - (1f - t).let { it * it * it }
                 progress = startProgress + (target - startProgress) * eased
                 onUpdate(progress)
                 component.repaint()
-                if (t >= 1f) {
-                    progress = target
-                    onUpdate(progress)
-                    timer?.stop()
-                    timer = null
-                }
-            }
-            timer?.start()
+                if (t >= 1f) { progress = target; stop() }
+            }.also { it.start() }
         }
     }
+
+    fun stop() { timer?.stop(); timer = null }
 }
